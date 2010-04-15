@@ -1202,6 +1202,37 @@ static int lo_ioctl(struct block_device *bdev, fmode_t mode,
 
 	mutex_lock_nested(&lo->lo_ctl_mutex, 1);
 	switch (cmd) {
+	case BLKROSET:
+		if(arg)
+		{
+			if((lo->lo_flags & LO_FLAGS_READ_ONLY) == 0)
+			{
+				/* Read-write to read-only */
+		loop_flush(lo);
+		lo->lo_flags |= LO_FLAGS_READ_ONLY;
+				set_device_ro(bdev, 1);
+		drop_file_write_access(lo->lo_backing_file);
+		lo->lo_backing_file->f_mode &= ~FMODE_WRITE;
+		err = 0;
+			} else
+			{
+				/* Read-only to read-only */
+				err = 0;
+			}
+		} else
+		{
+			if((lo->lo_flags & LO_FLAGS_READ_ONLY) == 0)
+			{
+				/* Read-write to read-write */
+				err = 0;
+			} else
+			{
+				/* Read-only to read-write */
+				/* Unsupported; just open the file again for writing and use LOOP_CHANGE_FD */
+				err = -EINVAL;
+			}
+		}
+		break;
 	case LOOP_SET_FD:
 		err = loop_set_fd(lo, mode, bdev, arg);
 		break;
@@ -1385,6 +1416,7 @@ static int lo_compat_ioctl(struct block_device *bdev, fmode_t mode,
 		arg = (unsigned long) compat_ptr(arg);
 	case LOOP_SET_FD:
 	case LOOP_CHANGE_FD:
+	case BLKROSET:
 		err = lo_ioctl(bdev, mode, cmd, arg);
 		break;
 	default:

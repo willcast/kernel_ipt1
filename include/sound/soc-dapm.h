@@ -95,6 +95,21 @@
 	.shift = wshift, .invert = winvert, .kcontrols = wcontrols, \
 	.num_kcontrols = 1}
 
+/* Simplified versions of above macros, assuming wncontrols = ARRAY_SIZE(wcontrols) */
+#define SOC_PGA_ARRAY(wname, wreg, wshift, winvert,\
+	 wcontrols) \
+{	.id = snd_soc_dapm_pga, .name = wname, .reg = wreg, .shift = wshift, \
+	.invert = winvert, .kcontrols = wcontrols, .num_kcontrols = ARRAY_SIZE(wcontrols)}
+#define SOC_MIXER_ARRAY(wname, wreg, wshift, winvert, \
+	 wcontrols)\
+{	.id = snd_soc_dapm_mixer, .name = wname, .reg = wreg, .shift = wshift, \
+	.invert = winvert, .kcontrols = wcontrols, .num_kcontrols = ARRAY_SIZE(wcontrols)}
+#define SOC_MIXER_NAMED_CTL_ARRAY(wname, wreg, wshift, winvert, \
+	 wcontrols)\
+{       .id = snd_soc_dapm_mixer_named_ctl, .name = wname, .reg = wreg, \
+	.shift = wshift, .invert = winvert, .kcontrols = wcontrols, \
+	.num_kcontrols = ARRAY_SIZE(wcontrols)}
+
 /* path domain with event - event handler must return 0 for success */
 #define SND_SOC_DAPM_PGA_E(wname, wreg, wshift, winvert, wcontrols, \
 	wncontrols, wevent, wflags) \

@@ -5,6 +5,11 @@
 menu "Serial drivers"
 	depends on HAS_IOMEM
 
+config SERIAL_APPLE_IPHONE
+	tristate "Apple iPhone serial support"
+	depends on MACH_APPLE_IPHONE
+	select SERIAL_CORE
+
 #
 # The new 8250/16550 serial drivers
 config SERIAL_8250

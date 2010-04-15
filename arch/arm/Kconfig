@@ -206,6 +206,20 @@ choice
 	prompt "ARM system type"
 	default ARCH_VERSATILE
 
+config MACH_APPLE_IPHONE
+	bool "Apple iPhone"
+	select SERIAL_CORE
+	select SERIAL_CORE_CONSOLE
+	select FB
+	select FB_DEFERRED_IO
+	select FRAMEBUFFER_CONSOLE
+	select FB_APPLE_IPHONE
+	select HAVE_CLK
+	select GENERIC_GPIO
+        select S3C_DEV_USB_HSOTG
+	help
+	  Apple's iPhone!
+
 config ARCH_AAEC2000
 	bool "Agilent AAEC-2000 based"
 	select CPU_ARM920T
@@ -777,6 +791,8 @@ source "arch/arm/mach-lh7a40x/Kconfig"
 source "arch/arm/mach-h720x/Kconfig"
 
 source "arch/arm/mach-versatile/Kconfig"
+
+source "arch/arm/mach-apple_iphone/Kconfig"
 
 source "arch/arm/mach-aaec2000/Kconfig"
 

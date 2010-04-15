@@ -662,6 +662,15 @@ struct cmd_ds_802_11_eeprom_access {
 	u8 value[LBS_EEPROM_READ_LEN];
 } __attribute__ ((packed));
 
+struct cmd_ds_802_11_cal_data_ext {
+	struct cmd_header hdr;
+	__le16 action;
+	__le16 revision;
+	__le16 len;
+#define LBS_CAL_DATA_LEN 0x400
+	u8 data[LBS_CAL_DATA_LEN];
+} __attribute__ ((packed));
+
 struct cmd_ds_802_11_tpc_cfg {
 	struct cmd_header hdr;
 
