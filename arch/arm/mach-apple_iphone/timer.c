@@ -4,8 +4,9 @@
 #include <linux/interrupt.h>
 #include <linux/irq.h>
 #include <linux/err.h>
-#include <linux/clk.h>
 #include <linux/io.h>
+#include <linux/clk.h>
+#include <linux/clockchips.h>
 
 #include <asm/system.h>
 #include <asm/leds.h>
@@ -14,6 +15,7 @@
 #include <asm/irq.h>
 #include <asm/mach/time.h>
 #include <mach/hardware.h>
+#include <mach/iphone-clock.h>
 
 // Constants
 #define EventTimer 4
@@ -301,6 +303,8 @@ static irqreturn_t iphone_timer_interrupt(int irq, void* dev_id) {
 	return IRQ_HANDLED;
 }
 
+static void timer_fired(void);
+
 static void iphone_timer_setup(void)
 {
 	/* stop/cleanup any existing timers */
@@ -309,62 +313,58 @@ static void iphone_timer_setup(void)
 	/* do some voodoo */
 	timer_init_rtc();
 
-	Timers[EventTimer].handler2 = timer_tick;
-	// Initialize the timer hardware for something that goes off once every 100 Hz.
-	// The handler for the timer will reset it so it's periodic
-	timer_init(EventTimer, TicksPerSec/HZ, 0, 0, 0, 0, 0);
-
-	timer_on_off(EventTimer, 1);
+	Timers[EventTimer].handler2 = timer_fired;
 }
 
-#define TIMER_USEC_SHIFT 16
-
-/* timer_mask_usec_ticks
- *
- * given a clock and divisor, make the value to pass into timer_ticks_to_usec
- * to scale the ticks into usecs
-*/
-
-static inline unsigned long
-timer_mask_usec_ticks(unsigned long scaler, unsigned long pclk)
+static void iphone_timer_set_mode(enum clock_event_mode mode,
+			      struct clock_event_device *evt)
 {
-	unsigned long den = pclk / 1000;
-
-	return ((1000 << TIMER_USEC_SHIFT) * scaler + (den >> 1)) / den;
-}
-
-static unsigned long timer_usec_ticks;
-
-/* timer_ticks_to_usec
- *
- * convert timer ticks to usec.
-*/
-
-static inline unsigned long timer_ticks_to_usec(unsigned long ticks)
-{
-	unsigned long res;
-
-	res = ticks * timer_usec_ticks;
-	res += 1 << (TIMER_USEC_SHIFT - 4);	/* round up slightly */
-
-	return res >> TIMER_USEC_SHIFT;
-}
-
-static unsigned long iphone_gettimeoffset(void)
-{
-	unsigned long tdone;
-	u32 stat;
-
-	tdone = __raw_readl(HWTimers[EventTimer].cur_count);
-
-	stat = __raw_readl(TIMER + TIMER_IRQSTAT) >> (8 * (NUM_TIMERS - EventTimer - 1));
-	if((stat & (1 << 0)) != 0) {
-		tdone = __raw_readl(HWTimers[EventTimer].cur_count);
-		tdone += __raw_readl(HWTimers[EventTimer].count_buffer);
+	switch (mode) {
+	case CLOCK_EVT_MODE_RESUME:
+	case CLOCK_EVT_MODE_PERIODIC:
+		timer_on_off(EventTimer, 1);
+		break;
+	case CLOCK_EVT_MODE_ONESHOT:
+		break;
+	case CLOCK_EVT_MODE_UNUSED:
+	case CLOCK_EVT_MODE_SHUTDOWN:
+		timer_on_off(EventTimer, 0);
+		break;
 	}
-
-	return timer_ticks_to_usec(tdone);
 }
+
+static int iphone_timer_set_next_event(unsigned long cycles,
+				    struct clock_event_device *evt)
+{
+	timer_init(EventTimer, cycles, 0, 0, 0, 0, 0);
+	return 0;
+}
+
+static cycle_t iphone_timer_read(struct clocksource *cs)
+{
+	u64 ticks;
+	iphone_timer_get_rtc_ticks(&ticks);
+	return ticks;
+}
+
+struct clock_event_device clockevent =
+{
+	.name = "iphone_timer",
+	.features = CLOCK_EVT_FEAT_PERIODIC,
+	.rating = 200,
+	.set_next_event = iphone_timer_set_next_event,
+	.set_mode = iphone_timer_set_mode,
+};
+
+struct clocksource clocksource =
+{
+	.name = "iphone_timer",
+	.rating = 200,
+	.read = iphone_timer_read,
+	.mask = CLOCKSOURCE_MASK(64),
+	.shift = 24,
+	.flags = CLOCK_SOURCE_IS_CONTINUOUS,
+};
 
 static struct irqaction iphone_timer_irq = {
 	.name		= "iPhone Timer Tick",
@@ -372,9 +372,16 @@ static struct irqaction iphone_timer_irq = {
 	.handler	= iphone_timer_interrupt,
 };
 
+static void timer_fired(void)
+{
+	struct clock_event_device *evt = &clockevent;
+	evt->event_handler(evt);
+}
+
 static void __init iphone_timer_init(void)
 {
 	int i;
+	int res;
 
 	printk("iphone-timer: initializing\n");
 
@@ -382,16 +389,36 @@ static void __init iphone_timer_init(void)
 		timer_setup_clk(i, 1, 2, 0);
 	}
 
-	timer_usec_ticks = timer_mask_usec_ticks(1, 12000000);
 	iphone_timer_setup();
-	setup_irq(TIMER_IRQ, &iphone_timer_irq);
 
-	printk("iphone-timer: finished initialization\n");
+	clockevents_calc_mult_shift(&clockevent, FREQUENCY_BASE, 4);
+	clockevent.max_delta_ns = clockevent_delta2ns(0xF0000000, &clockevent);
+	clockevent.min_delta_ns = clockevent_delta2ns(4, &clockevent);
+	clockevent.cpumask = cpumask_of(0);
+
+	clocksource.mult = clocksource_hz2mult(FREQUENCY_BASE, clocksource.shift);
+
+	res = clocksource_register(&clocksource);
+	if(res)
+	{
+		printk("iphone-timer: failed to register clock source\n");
+		return;
+	}
+
+	res = setup_irq(TIMER_IRQ, &iphone_timer_irq);
+	if(res)
+	{
+		printk("iphone-timer: failed to setup irq\n");
+		return;
+	}
+
+	clockevents_register_device(&clockevent);
+
+	printk("iphone-timer: finished initialization: (cycles * %u) >> %u = ns and (cycles << %u) / %u = ns\n", clocksource.mult, clocksource.shift,
+			clockevent.shift, clockevent.mult);
 }
 
 struct sys_timer iphone_timer = {
 	.init		= iphone_timer_init,
-	.offset		= iphone_gettimeoffset,
-	.resume		= iphone_timer_setup
 };
 

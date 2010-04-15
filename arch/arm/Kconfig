@@ -208,6 +208,8 @@ choice
 
 config MACH_APPLE_IPHONE
 	bool "Apple iPhone"
+	select GENERIC_TIME
+	select GENERIC_CLOCKEVENTS
 	select SERIAL_CORE
 	select SERIAL_CORE_CONSOLE
 	select FB

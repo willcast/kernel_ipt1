@@ -79,7 +79,7 @@ struct clock_event_device {
 	unsigned int		features;
 	unsigned long		max_delta_ns;
 	unsigned long		min_delta_ns;
-	unsigned long		mult;
+	u32			mult;
 	int			shift;
 	int			rating;
 	int			irq;
@@ -129,6 +129,16 @@ extern int clockevents_program_event(struct clock_event_device *dev,
 				     ktime_t expires, ktime_t now);
 
 extern void clockevents_handle_noop(struct clock_event_device *dev);
+
+extern void
+clocks_calc_mult_shift(u32 *mult, u32 *shift, u32 from, u32 to, u32 minsec);
+
+static inline void
+clockevents_calc_mult_shift(struct clock_event_device *ce, u32 freq, u32 minsec)
+{
+	return clocks_calc_mult_shift(&ce->mult, &ce->shift, NSEC_PER_SEC,
+			freq, minsec);
+}
 
 #ifdef CONFIG_GENERIC_CLOCKEVENTS
 extern void clockevents_notify(unsigned long reason, void *arg);

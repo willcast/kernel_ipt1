@@ -25,6 +25,7 @@
 #define FREQUENCY_DISPLAY 54000000
 #define FREQUENCY_FIXED 24000000
 #define FREQUENCY_TIMEBASE 6000000
+#define FREQUENCY_BASE 12000000
 
 extern int iphone_power_ctrl(u32 device, int on_off);
 extern void iphone_clock_gate_switch(u32 gate, int on_off);
