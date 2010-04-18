@@ -180,6 +180,13 @@ config KEYBOARD_GPIO
 	  To compile this driver as a module, choose M here: the
 	  module will be called gpio_keys.
 
+config KEYBOARD_GPIO_IPHONE
+	tristate "GPIO Buttons for iPhone"
+	depends on GENERIC_GPIO
+	help
+	  Use flipping level GPIO interrupts rather than edge
+          interrupts.
+
 config KEYBOARD_MATRIX
 	tristate "GPIO driven matrix keypad support"
 	depends on GENERIC_GPIO

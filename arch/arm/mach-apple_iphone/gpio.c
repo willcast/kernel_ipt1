@@ -4,6 +4,8 @@
 #include <linux/sysdev.h>
 #include <linux/interrupt.h>
 #include <linux/io.h>
+#include <linux/gpio_keys.h>
+#include <linux/platform_device.h>
 
 #include <mach/iphone-clock.h>
 #include <mach/gpio.h>
@@ -24,6 +26,8 @@
 #define GPIO_AUTOFLIP_NO 0x0
 #define GPIO_AUTOFLIP_YES GPIO_AUTOFLIP_MASK
 
+bool autoflip[IPHONE_NR_GPIO_IRQS];
+
 static GPIORegisters* GPIORegs = (GPIORegisters*) GPIO;
 
 static irqreturn_t gpio_handle_interrupt(int irq, void* pToken);
@@ -40,6 +44,54 @@ static struct irq_chip iphone_gpio_irq_chip = {
 	.set_type = iphone_gpio_interrupt_set_type,
 };
 
+static struct gpio_keys_button iphone_gpio_keys_table[] = {
+	{
+		.gpio = GPIO_BUTTONS_HOME,
+		.code = 229,
+		.desc = "MENU",
+		.active_low = 0,
+		.wakeup = 0,
+		.debounce_interval = 20,
+	},
+	{
+		.gpio = GPIO_BUTTONS_HOLD,
+		.code = 158,
+		.desc = "BACK",
+		.active_low = 0,
+		.wakeup = 0,
+		.debounce_interval = 20,
+	},
+	{
+		.gpio = GPIO_BUTTONS_VOLUP,
+		.code = 115,
+		.desc = "VOLUME_UP",
+		.active_low = 1,
+		.wakeup = 0,
+		.debounce_interval = 20,
+	},
+	{
+		.gpio = GPIO_BUTTONS_VOLDOWN,
+		.code = 114,
+		.desc = "VOLUME_DOWN",
+		.active_low = 1,
+		.wakeup = 0,
+		.debounce_interval = 20,
+	},
+};
+
+static struct gpio_keys_platform_data iphone_gpio_keys_data = {
+	.buttons = iphone_gpio_keys_table,
+	.nbuttons = ARRAY_SIZE(iphone_gpio_keys_table),
+};
+
+static struct platform_device iphone_device_gpiokeys = {
+	.name = "gpio-keys",
+	.dev = {
+		.platform_data = &iphone_gpio_keys_data,
+	},
+};
+
+
 static int iphone_gpio_setup(void) {
 	int i;
 	int ret;
@@ -54,6 +106,7 @@ static int iphone_gpio_setup(void) {
 
 	for(i = 0; i < IPHONE_NR_GPIO_IRQS; i++)
 	{
+		autoflip[i] = false;
 		set_irq_chip(IPHONE_GPIO_IRQS + i, &iphone_gpio_irq_chip);
 		set_irq_handler(IPHONE_GPIO_IRQS + i, handle_level_irq);
 		set_irq_flags(IPHONE_GPIO_IRQS + i, IRQF_VALID);
@@ -88,6 +141,9 @@ static int iphone_gpio_setup(void) {
 		return ret;
 
 	iphone_clock_gate_switch(GPIO_CLOCKGATE, 1);
+
+	platform_device_register(&iphone_device_gpiokeys);
+	printk("iphone-gpio: button device registered\n");
 
 	return 0;
 }
@@ -180,6 +236,13 @@ static int iphone_gpio_interrupt_set_type(unsigned int irq, unsigned int flags)
 	if((flags & IRQ_TYPE_EDGE_RISING) || (flags & IRQ_TYPE_LEVEL_HIGH))
 		level = 1;
 
+	if((flags & IRQ_TYPE_EDGE_FALLING) && (flags & IRQ_TYPE_EDGE_RISING))
+		autoflip[interrupt] = true;
+	else if((flags & IRQ_TYPE_LEVEL_LOW) && (flags & IRQ_TYPE_LEVEL_HIGH))
+		autoflip[interrupt] = true;
+	else
+		autoflip[interrupt] = false;
+
 	writel((readl(GPIOIC + GPIO_INTTYPE + (0x4 * group)) & mask) | ((type ? 1 : 0) << index), GPIOIC + GPIO_INTTYPE + (0x4 * group));
 
 	writel((readl(GPIOIC + GPIO_INTLEVEL + (0x4 * group)) & mask) | ((level ? 1 : 0) << index), GPIOIC + GPIO_INTLEVEL + (0x4 * group));
@@ -203,6 +266,9 @@ static irqreturn_t gpio_handle_interrupt(int irq, void* pToken)
 			{
 				int num = (token << 5) + i;
 
+				if(autoflip[num])
+					writel(readl(GPIOIC + GPIO_INTLEVEL + (0x4 * token)) ^ (1 << i), GPIOIC + GPIO_INTLEVEL + (0x4 * token));
+
 				generic_handle_irq(IPHONE_GPIO_IRQS + num);
 			}
 
@@ -213,3 +279,25 @@ static irqreturn_t gpio_handle_interrupt(int irq, void* pToken)
 	return IRQ_HANDLED;
 }
 
+int gpio_to_irq(unsigned gpio)
+{
+	if(gpio >= 0x1600 && gpio < 0x1700)
+	{
+		return IPHONE_GPIO_IRQS + (gpio - 0x1600 + 0x28);
+	}
+
+	return -1;
+}
+
+int irq_to_gpio(unsigned irq)
+{
+	if(irq > IPHONE_GPIO_IRQS)
+	{
+		if(irq >= (IPHONE_GPIO_IRQS + 0x28))
+			return (irq - IPHONE_GPIO_IRQS - 0x28) + 0x1600;
+		else
+			return -1;
+	}
+
+	return -1;
+}
