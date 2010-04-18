@@ -20,4 +20,8 @@
 
 #include <mach/platform.h>
 
-#define NR_IRQS	0x40
+#define IPHONE_NR_VIC_IRQS 0x40
+#define IPHONE_NR_GPIO_IRQS (7 * 32)
+#define IPHONE_GPIO_IRQS IPHONE_NR_VIC_IRQS
+#define NR_IRQS	(IPHONE_NR_VIC_IRQS + IPHONE_NR_GPIO_IRQS)
+

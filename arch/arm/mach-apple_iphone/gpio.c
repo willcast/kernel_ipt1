@@ -7,6 +7,8 @@
 
 #include <mach/iphone-clock.h>
 #include <mach/gpio.h>
+#include <asm/irq.h>
+#include <asm/mach/irq.h>
 
 #define GET_BITS(x, start, length) ((((u32)(x)) << (32 - ((start) + (length)))) >> (32 - (length)))
 
@@ -22,17 +24,21 @@
 #define GPIO_AUTOFLIP_NO 0x0
 #define GPIO_AUTOFLIP_YES GPIO_AUTOFLIP_MASK
 
-typedef struct {
-	u32 flags[32];
-	void* token[32];
-	irq_handler_t handler[32];
-} GPIOInterruptGroup;
-
-GPIOInterruptGroup InterruptGroups[GPIO_NUMINTGROUPS];
-
 static GPIORegisters* GPIORegs = (GPIORegisters*) GPIO;
 
 static irqreturn_t gpio_handle_interrupt(int irq, void* pToken);
+static void iphone_gpio_interrupt_enable(unsigned int irq);
+static void iphone_gpio_interrupt_disable(unsigned int irq);
+static void iphone_gpio_interrupt_ack(unsigned int irq);
+static int iphone_gpio_interrupt_set_type(unsigned int irq, unsigned int flags);
+
+static struct irq_chip iphone_gpio_irq_chip = {
+	.name = "iphone_gpio",
+	.mask = iphone_gpio_interrupt_disable,
+	.unmask = iphone_gpio_interrupt_enable,
+	.ack = iphone_gpio_interrupt_ack,
+	.set_type = iphone_gpio_interrupt_set_type,
+};
 
 static int iphone_gpio_setup(void) {
 	int i;
@@ -46,7 +52,12 @@ static int iphone_gpio_setup(void) {
 		writel(GPIO_INTEN_RESET, GPIOIC + GPIO_INTEN + (i * 0x4));
 	}
 
-	memset(InterruptGroups, 0, sizeof(InterruptGroups));
+	for(i = 0; i < IPHONE_NR_GPIO_IRQS; i++)
+	{
+		set_irq_chip(IPHONE_GPIO_IRQS + i, &iphone_gpio_irq_chip);
+		set_irq_handler(IPHONE_GPIO_IRQS + i, handle_level_irq);
+		set_irq_flags(IPHONE_GPIO_IRQS + i, IRQF_VALID);
+	}
 
         ret = request_irq(0x21, gpio_handle_interrupt, IRQF_DISABLED, "iphone_gpio", (void*) 0);
 	if(ret)
@@ -75,8 +86,6 @@ static int iphone_gpio_setup(void) {
         ret = request_irq(0x00, gpio_handle_interrupt, IRQF_DISABLED, "iphone_gpio", (void*) 6);
 	if(ret)
 		return ret;
-
-	// iBoot also sets up interrupt handlers, but those are never unmasked
 
 	iphone_clock_gate_switch(GPIO_CLOCKGATE, 1);
 
@@ -116,49 +125,66 @@ int iphone_gpio_detect_configuration(void) {
 	return detectedConfig;
 }
 
-void iphone_gpio_register_interrupt(u32 interrupt, int type, int level, int autoflip, irq_handler_t handler, void* token)
+static void iphone_gpio_interrupt_enable(unsigned int irq)
 {
+	int interrupt = irq - IPHONE_GPIO_IRQS;
+	int group = interrupt >> 5;
+	int index = interrupt & 0x1f;
+
+	writel(readl(GPIOIC + GPIO_INTEN + (0x4 * group)) | (1 << index), GPIOIC + GPIO_INTEN + (0x4 * group));
+}
+
+static void iphone_gpio_interrupt_disable(unsigned int irq)
+{
+	int interrupt = irq - IPHONE_GPIO_IRQS;
 	int group = interrupt >> 5;
 	int index = interrupt & 0x1f;
 	int mask = ~(1 << index);
-	unsigned long flags;
 
-	local_irq_save(flags);
+	writel(readl(GPIOIC + GPIO_INTEN + (0x4 * group)) & mask, GPIOIC + GPIO_INTEN + (0x4 * group));
+}
 
-	InterruptGroups[group].flags[index] = (type ? GPIO_INTTYPE_LEVEL : 0) | (level ? GPIO_INTLEVEL_HIGH : 0) | (level ? GPIO_AUTOFLIP_YES : 0);
-	InterruptGroups[group].handler[index] = handler;
-	InterruptGroups[group].token[index] = token;
+static void iphone_gpio_interrupt_ack(unsigned int irq)
+{
+	int interrupt = irq - IPHONE_GPIO_IRQS;
+	int group = interrupt >> 5;
+	int index = interrupt & 0x1f;
+	writel(1 << index, GPIOIC + GPIO_INTSTAT + (0x4 * group));
+}
 
-	// set whether or not the interrupt is level or edge
+
+static int iphone_gpio_interrupt_set_type(unsigned int irq, unsigned int flags)
+{
+	int interrupt = irq - IPHONE_GPIO_IRQS;
+	int group = interrupt >> 5;
+	int index = interrupt & 0x1f;
+	int mask = ~(1 << index);
+	int level;
+	int type;
+
+	if((flags & IRQ_TYPE_EDGE_FALLING) || (flags & IRQ_TYPE_EDGE_RISING))
+	{
+		type = 0;
+		set_irq_handler(irq, handle_edge_irq);
+	}
+
+	if((flags & IRQ_TYPE_LEVEL_HIGH) || (flags & IRQ_TYPE_LEVEL_HIGH))
+	{
+		type = 1;
+		set_irq_handler(irq, handle_level_irq);
+	}
+
+	if((flags & IRQ_TYPE_EDGE_FALLING) || (flags & IRQ_TYPE_LEVEL_LOW))
+		level = 0;
+
+	if((flags & IRQ_TYPE_EDGE_RISING) || (flags & IRQ_TYPE_LEVEL_HIGH))
+		level = 1;
+
 	writel((readl(GPIOIC + GPIO_INTTYPE + (0x4 * group)) & mask) | ((type ? 1 : 0) << index), GPIOIC + GPIO_INTTYPE + (0x4 * group));
 
-	// set whether to trigger the interrupt high or low
 	writel((readl(GPIOIC + GPIO_INTLEVEL + (0x4 * group)) & mask) | ((level ? 1 : 0) << index), GPIOIC + GPIO_INTLEVEL + (0x4 * group));
-	local_irq_restore(flags);
-}
 
-void iphone_gpio_interrupt_enable(u32 interrupt)
-{
-	int group = interrupt >> 5;
-	int index = interrupt & 0x1f;
-	unsigned long flags;
-
-	local_irq_save(flags);
-	writel(1 << index, GPIOIC + GPIO_INTSTAT + (0x4 * group));
-	writel(readl(GPIOIC + GPIO_INTEN + (0x4 * group)) | (1 << index), GPIOIC + GPIO_INTEN + (0x4 * group));
-	local_irq_restore(flags);
-}
-
-void iphone_gpio_interrupt_disable(u32 interrupt)
-{
-	int group = interrupt >> 5;
-	int index = interrupt & 0x1f;
-	int mask = ~(1 << index);
-	unsigned long flags;
-
-	local_irq_save(flags);
-	writel(readl(GPIOIC + GPIO_INTEN + (0x4 * group)) & mask, GPIOIC + GPIO_INTEN + (0x4 * group));
-	local_irq_restore(flags);
+	return 0;
 }
 
 static irqreturn_t gpio_handle_interrupt(int irq, void* pToken)
@@ -175,26 +201,9 @@ static irqreturn_t gpio_handle_interrupt(int irq, void* pToken)
 		{
 			if(stat & 1)
 			{
-				u32 flags = InterruptGroups[token].flags[i];
+				int num = (token << 5) + i;
 
-				if((flags & GPIO_INTTYPE_MASK) == GPIO_INTTYPE_EDGE)
-					writel(1 << i, statReg);
-
-				if((flags & GPIO_AUTOFLIP_MASK) == GPIO_AUTOFLIP_YES)
-				{
-					// flip the corresponding bit in GPIO_INTLEVEL
-					writel(readl(GPIOIC + GPIO_INTLEVEL + (0x4 * token)) ^ (1 << i), GPIOIC + GPIO_INTLEVEL + (0x4 * token));
-
-					// flip the bit in the flags too
-					InterruptGroups[token].flags[i] = flags ^ GPIO_INTLEVEL_MASK;
-				}
-
-				if(InterruptGroups[token].handler[i])
-				{
-					InterruptGroups[token].handler[i]((token << 5) | i, InterruptGroups[token].token[i]);
-				}
-
-				writel(1 << i, statReg);
+				generic_handle_irq(IPHONE_GPIO_IRQS + num);
 			}
 
 			stat >>= 1;

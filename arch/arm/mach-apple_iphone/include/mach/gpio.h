@@ -52,9 +52,5 @@ void iphone_gpio_pin_reset(int port);
 void iphone_gpio_pin_output(int port, int bit);
 int iphone_gpio_detect_configuration(void);
 
-void iphone_gpio_register_interrupt(u32 interrupt, int type, int level, int autoflip, irq_handler_t handler, void* token);
-void iphone_gpio_interrupt_enable(u32 interrupt);
-void iphone_gpio_interrupt_disable(u32 interrupt);
-
 #endif
 

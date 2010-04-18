@@ -3,6 +3,7 @@
 #include <linux/platform_device.h>
 #include <linux/firmware.h>
 #include <linux/input.h>
+#include <linux/interrupt.h>
 #include <mach/iphone-spi.h>
 #include <mach/gpio.h>
 
@@ -177,8 +178,7 @@ int multitouch_setup(const u8* ASpeedFirmware, int ASpeedFirmwareLen, const u8* 
 	memset(GetInfoPacket, 0x82, 0x400);
 	memset(GetResultPacket, 0x68, 0x400);
 
-	iphone_gpio_register_interrupt(MT_ATN_INTERRUPT, 0, 0, 0, multitouch_atn, 0);
-	iphone_gpio_interrupt_enable(MT_ATN_INTERRUPT);
+	request_irq(MT_ATN_INTERRUPT + IPHONE_GPIO_IRQS, multitouch_atn, IRQF_TRIGGER_FALLING, "iphone-multitouch", (void*) 0);
 
 	multitouch_on();
 

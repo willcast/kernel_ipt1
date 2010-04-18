@@ -95,6 +95,7 @@ static inline void iphone_irq_unmask(unsigned int irqno)
 }
 
 static struct irq_chip iphone_irq_fasteoi_chip = {
+	.name = "iphone_vic",
 	.eoi = iphone_irq_eoi,
 	.mask = iphone_irq_mask,
 	.unmask = iphone_irq_unmask,
