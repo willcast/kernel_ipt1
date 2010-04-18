@@ -5,6 +5,7 @@
 #include <linux/interrupt.h>
 #include <linux/io.h>
 #include <linux/gpio_keys.h>
+#include <linux/switch.h>
 #include <linux/platform_device.h>
 
 #include <mach/iphone-clock.h>
@@ -91,6 +92,20 @@ static struct platform_device iphone_device_gpiokeys = {
 	},
 };
 
+static struct gpio_switch_platform_data headset_switch_data = {
+	.name = "h2w",
+	.gpio = 0x1402,
+	.state_on = "0",
+	.state_off = "1",
+	.irq_flags = IRQF_TRIGGER_HIGH | IRQF_TRIGGER_LOW,
+};
+
+static struct platform_device headset_switch_device = {
+	.name = "switch-gpio",
+	.dev = {
+		.platform_data = &headset_switch_data,
+	}
+}; 
 
 static int iphone_gpio_setup(void) {
 	int i;
@@ -143,7 +158,8 @@ static int iphone_gpio_setup(void) {
 	iphone_clock_gate_switch(GPIO_CLOCKGATE, 1);
 
 	platform_device_register(&iphone_device_gpiokeys);
-	printk("iphone-gpio: button device registered\n");
+	platform_device_register(&headset_switch_device);
+	printk("iphone-gpio: GPIO input devices registered\n");
 
 	return 0;
 }
@@ -284,6 +300,9 @@ int gpio_to_irq(unsigned gpio)
 	if(gpio >= 0x1600 && gpio < 0x1700)
 	{
 		return IPHONE_GPIO_IRQS + (gpio - 0x1600 + 0x28);
+	} else if(gpio == 0x1402)
+	{
+		return IPHONE_GPIO_IRQS + 0x3A;
 	}
 
 	return -1;
