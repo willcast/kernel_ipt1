@@ -69,7 +69,7 @@ int iphone_dma_setup(void) {
 	memset(requests, 0, sizeof(requests));
 
         ret = request_irq(DMAC0_INTERRUPT, dmaIRQHandler, IRQF_DISABLED, "iphone_dma", (void*) 1);
-        ret = request_irq(DMAC0_INTERRUPT, dmaIRQHandler, IRQF_DISABLED, "iphone_dma", (void*) 2);
+        ret = request_irq(DMAC1_INTERRUPT, dmaIRQHandler, IRQF_DISABLED, "iphone_dma", (void*) 2);
 
 	spin_lock_init(&freeChannelsLock);
 
@@ -319,7 +319,7 @@ void iphone_dma_create_continue_list(dma_addr_t Source, dma_addr_t Destination, 
 		item->control = destinationIncrement | sourceIncrement | control | (curTransfer & DMAC0Control0_SIZEMASK);
 		item->source = src;
 		item->destination = dest;
-		item->next = itemPhys + sizeof(item);
+		item->next = itemPhys + sizeof(DMALinkedList);
 
 		if(sourceIncrement != 0)
 			src += 0xE00 << width_shift;

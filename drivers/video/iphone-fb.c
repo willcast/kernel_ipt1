@@ -118,8 +118,8 @@ static struct fb_var_screeninfo iphonefb_var __devinitdata = {
 		.msb_right = 0
 	},
 #endif
-	.width = 320,
-	.height = 480,
+	.width = 50,
+	.height = 75,
 	.activate = FB_ACTIVATE_NOW
 };
 
@@ -148,8 +148,7 @@ static struct fb_fix_screeninfo iphonefb_fix __devinitdata = {
 	.id =		"iphonefb",
 	.type =		FB_TYPE_PACKED_PIXELS,
 	.visual =	FB_VISUAL_TRUECOLOR,
-	.xpanstep =	0,
-	.ypanstep =	0,
+	.ypanstep =	1,
 	.ywrapstep =	0,
 	.line_length =	320 * BYTES_PER_PIXEL,
 	.accel =	FB_ACCEL_NONE,
@@ -327,7 +326,7 @@ static int __init iphonefb_probe(struct platform_device *pdev)
      *
      * NOTE: These are for fbcon use only.
      */
-    info->flags = FBINFO_DEFAULT;
+    info->flags = FBINFO_FLAG_DEFAULT;
 
     /* This has to been done !!! */
     fb_alloc_cmap(&info->cmap, 256, 0);
