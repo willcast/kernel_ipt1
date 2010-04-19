@@ -13,16 +13,7 @@ typedef struct PMURegisterData {
 	uint8_t data;
 } PMURegisterData;
 
-typedef enum PowerSupplyType {
-	PowerSupplyTypeError,
-	PowerSupplyTypeBattery,
-	PowerSupplyTypeFirewire,
-	PowerSupplyTypeUSBHost,
-	PowerSupplyTypeUSBBrick500mA,
-	PowerSupplyTypeUSBBrick1000mA
-} PowerSupplyType;
-
-/*static int iphone_pmu_get_reg(int reg) {
+static int iphone_pmu_get_reg(int reg) {
 	uint8_t registers[1];
 	uint8_t out[1];
 
@@ -30,7 +21,7 @@ typedef enum PowerSupplyType {
 
 	iphone_i2c_rx(PMU_I2C_BUS, PMU_GETADDR, registers, 1, out, 1);
 	return out[0];
-}*/
+}
 
 static int iphone_pmu_get_regs(int reg, uint8_t* out, int count) {
 	uint8_t registers[1];
@@ -61,41 +52,14 @@ static int iphone_pmu_write_reg(int reg, int data, int verify) {
 		return -1;
 }
 
-/*static int iphone_pmu_write_regs(const PMURegisterData* regs, int num) {
-	int i;
-	for(i = 0; i < num; i++) {
-		iphone_pmu_write_reg(regs[i].reg, regs[i].data, 1);
-	}
-
-	return 0;
-}
-
-static void iphone_pmu_write_oocshdwn(int data) {
-	uint8_t registers[1];
-	uint8_t discardData[5];
-	uint8_t poweroffData[] = {7, 0xAA, 0xFC, 0x0, 0x0, 0x0};
-	registers[0] = 2;
-	iphone_i2c_rx(PMU_I2C_BUS, PMU_GETADDR, registers, sizeof(registers), discardData, sizeof(data));
-	iphone_i2c_tx(PMU_I2C_BUS, PMU_SETADDR, poweroffData, sizeof(poweroffData));
-	iphone_pmu_write_reg(PMU_OOCSHDWN, data, 0);
-	while(1) {
-		udelay(100000);
-	}
-}
-
-static void iphone_pmu_poweroff(void) {
-	//lcd_shutdown();
-	iphone_pmu_write_oocshdwn(PMU_OOCSHDWN_GOSTBY);
-}
-
 static int query_adc(int flags) {
 	uint8_t lower;
 	iphone_pmu_write_reg(PMU_ADCC3, 0, 0);
 	iphone_pmu_write_reg(PMU_ADCC3, 0, 0);
 	udelay(30);
 	iphone_pmu_write_reg(PMU_ADCC2, 0, 0);
-	iphone_pmu_write_reg(PMU_ADCC1, PMU_ADCC1_ADCSTART | (PMU_ADCC1_ADC_AV_16 << PMU_ADCC1_ADC_AV_SHIFT) | (PMU_ADCC1_ADCINMUX_BATSNS_DIV << PMU_ADCC1_ADCINMUX_SHIFT) | flags, 0);
-	udelay(30000);
+	iphone_pmu_write_reg(PMU_ADCC1, PMU_ADCC1_ADCSTART | (PMU_ADCC1_ADC_AV_16 << PMU_ADCC1_ADC_AV_SHIFT) | flags, 0);
+	msleep(30);
 	lower = iphone_pmu_get_reg(PMU_ADCS3);
 	if((lower & 0x80) == 0x80) {
 		uint8_t upper = iphone_pmu_get_reg(PMU_ADCS1);
@@ -138,7 +102,7 @@ static PowerSupplyType identify_usb_charger(void) {
 	}
 }
 
-static PowerSupplyType iphone_pmu_get_power_supply(void) {
+PowerSupplyType iphone_pmu_get_power_supply(void) {
 	int mbcs1 = iphone_pmu_get_reg(PMU_MBCS1);
 
 	if(mbcs1 & PMU_MBCS1_ADAPTPRES)
@@ -151,7 +115,8 @@ static PowerSupplyType iphone_pmu_get_power_supply(void) {
 
 }
 
-static void iphone_pmu_charge_settings(int UseUSB, int SuspendUSB, int StopCharger) {
+void iphone_pmu_charge_settings(int UseUSB, int SuspendUSB, int StopCharger)
+{
 	PowerSupplyType type = iphone_pmu_get_power_supply();
 
 	if(type != PowerSupplyTypeUSBHost)	// No need to suspend USB, since we're not plugged into a USB host
@@ -181,9 +146,38 @@ static void iphone_pmu_charge_settings(int UseUSB, int SuspendUSB, int StopCharg
 		iphone_gpio_pin_output(PMU_GPIO_CHARGER_USB_1000, 0);
 }
 
-static int iphone_pmu_get_battery_voltage(void) {
-	return query_adc(0);
-}*/
+int iphone_pmu_get_battery_voltage(void)
+{
+	return query_adc(PMU_ADCC1_ADCINMUX_BATSNS_DIV << PMU_ADCC1_ADCINMUX_SHIFT);
+}
+
+/*static int iphone_pmu_write_regs(const PMURegisterData* regs, int num) {
+	int i;
+	for(i = 0; i < num; i++) {
+		iphone_pmu_write_reg(regs[i].reg, regs[i].data, 1);
+	}
+
+	return 0;
+}
+
+static void iphone_pmu_write_oocshdwn(int data) {
+	uint8_t registers[1];
+	uint8_t discardData[5];
+	uint8_t poweroffData[] = {7, 0xAA, 0xFC, 0x0, 0x0, 0x0};
+	registers[0] = 2;
+	iphone_i2c_rx(PMU_I2C_BUS, PMU_GETADDR, registers, sizeof(registers), discardData, sizeof(data));
+	iphone_i2c_tx(PMU_I2C_BUS, PMU_SETADDR, poweroffData, sizeof(poweroffData));
+	iphone_pmu_write_reg(PMU_OOCSHDWN, data, 0);
+	while(1) {
+		udelay(100000);
+	}
+}
+
+static void iphone_pmu_poweroff(void) {
+	//lcd_shutdown();
+	iphone_pmu_write_oocshdwn(PMU_OOCSHDWN_GOSTBY);
+}
+*/
 
 /*static int iphone_pmu_get_dayofweek(void) {
 	return iphone_pmu_get_reg(PMU_RTCWD) & PMU_RTCWD_MASK;

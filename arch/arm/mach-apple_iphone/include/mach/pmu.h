@@ -80,5 +80,18 @@
 #define PMU_ADCC1_ADCINMUX_BATTEMP 0x6
 #define PMU_ADCC1_ADCINMUX_ADCIN1 0x7
 
+typedef enum PowerSupplyType {
+	PowerSupplyTypeError,
+	PowerSupplyTypeBattery,
+	PowerSupplyTypeFirewire,
+	PowerSupplyTypeUSBHost,
+	PowerSupplyTypeUSBBrick500mA,
+	PowerSupplyTypeUSBBrick1000mA
+} PowerSupplyType;
+
+int iphone_pmu_get_battery_voltage(void);
+void iphone_pmu_charge_settings(int UseUSB, int SuspendUSB, int StopCharger);
+PowerSupplyType iphone_pmu_get_power_supply(void);
+
 #endif
 

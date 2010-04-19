@@ -64,6 +64,10 @@ config BATTERY_PMU
 	  Say Y here to expose battery information on Apple machines
 	  through the generic battery class.
 
+config BATTERY_IPHONE
+	tristate "Apple iPhone Battery"
+	depends on MACH_APPLE_IPHONE
+
 config BATTERY_OLPC
 	tristate "One Laptop Per Child battery"
 	depends on X86_32 && OLPC
