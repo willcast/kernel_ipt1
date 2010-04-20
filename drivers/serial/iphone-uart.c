@@ -355,7 +355,7 @@ void iphone_uart_enable_tx_irq(struct iphone_uart_info* info)
 void iphone_uart_enable_rx_irq(struct iphone_uart_info* info)
 {
 	const struct UARTRegisters* uart = &HWUarts[info->ureg];
-	__raw_writel(__raw_readl(uart->UCON) | (1 << 12) | (1 << 7), uart->UCON);
+	__raw_writel(__raw_readl(uart->UCON) | (1 << 12) | (1 << 7) | (1 << 11), uart->UCON);
 }
 
 void iphone_uart_disable_tx_irq(struct iphone_uart_info* info)
@@ -367,7 +367,7 @@ void iphone_uart_disable_tx_irq(struct iphone_uart_info* info)
 void iphone_uart_disable_rx_irq(struct iphone_uart_info* info)
 {
 	const struct UARTRegisters* uart = &HWUarts[info->ureg];
-	__raw_writel(__raw_readl(uart->UCON) & ~((1 << 12) | (1 << 7)), uart->UCON);
+	__raw_writel(__raw_readl(uart->UCON) & ~((1 << 12) | (1 << 7) | (1 << 11)), uart->UCON);
 }
 
 static irqreturn_t iphone_uart_tx_chars(int irq, void* id)
@@ -521,7 +521,7 @@ static irqreturn_t iphone_uart_handle_irq(int irq, void* id)
 
 	pr_debug("iphone_uart_handle_irq: %x %x\n", __raw_readl(uart->UCON), pending >> 4);
 
-	if(pending & (1 << 4))
+	if((pending & (1 << 4)) || (pending & (1 << 3)))
 		iphone_uart_rx_chars(irq, info);
 
 	if(pending & (1 << 5))
