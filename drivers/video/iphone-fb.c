@@ -21,6 +21,7 @@
  */
 
 #include <linux/module.h>
+#include <linux/completion.h>
 #include <linux/kernel.h>
 #include <linux/errno.h>
 #include <linux/string.h>
@@ -31,13 +32,19 @@
 #include <linux/init.h>
 #include <linux/platform_device.h>
 #include <linux/dma-mapping.h>
+#include <linux/interrupt.h>
 
 #include <mach/hardware.h>
 
 #define DEFAULT_WINDOW_NUM 2
 #define LCD IO_ADDRESS(0x38900000)
+#define LCD_INTERRUPT 0xD
+#define VIDINTCON0 0x14
+#define VIDINTCON1 0x18
 #define BYTES_PER_PIXEL 2
 #define NUMBER_OF_BUFFERS 2
+
+DECLARE_COMPLETION(vsync_completion);
 
 static void iphone_set_fb_address(int window, dma_addr_t address) {
 	u32 windowBase;
@@ -246,6 +253,18 @@ static int iphonefb_pan_display(struct fb_var_screeninfo *var, struct fb_info *i
 {
 	iphone_set_fb_address(DEFAULT_WINDOW_NUM, info->fix.smem_start + (info->var.xres * BYTES_PER_PIXEL * var->yoffset));
 
+	/* We need to wait until the next vsync before allowing whoever requested the pan permission to write to buffer space */
+
+	INIT_COMPLETION(vsync_completion);
+
+	/* Clear any already pending interrupts */
+	writel(1, LCD + VIDINTCON1);
+	
+	/* Enable frame interrupts */
+	writel(0x7F01, LCD + VIDINTCON0);
+
+	wait_for_completion(&vsync_completion);
+
 	return 0;
 }
 
@@ -263,6 +282,22 @@ static struct fb_ops iphonefb_ops = {
 	.fb_imageblit	= cfb_imageblit,	/* Needed !!! */
 };
 
+#define LCD_INTERRUPT 0xD
+
+static irqreturn_t lcd_frame_irq(int irq, void* pToken)
+{
+	/* Clear pending interrupt */
+	writel(1, LCD + VIDINTCON1);
+
+	/* Disable frame interrupt */
+	writel(0x7F00, LCD + VIDINTCON0);
+	
+	/* Notify pan operation */
+	complete(&vsync_completion);
+	
+	return IRQ_HANDLED;
+}
+
 /* ------------------------------------------------------------------------- */
 
     /*
@@ -277,6 +312,14 @@ static int __init iphonefb_probe(struct platform_device *pdev)
     struct device *device = &pdev->dev; /* or &pdev->dev */
     dma_addr_t dma_map;
     u32 framesize;
+    int ret;
+
+    /* Disable frame interrupts */
+    writel(0x7F00, LCD + 0x14);
+
+    ret = request_irq(LCD_INTERRUPT, lcd_frame_irq, IRQF_DISABLED, "iphonefb", (void*) 0);
+    if(ret)
+	    return ret;
 
     /*
      * Dynamically allocate info and par
