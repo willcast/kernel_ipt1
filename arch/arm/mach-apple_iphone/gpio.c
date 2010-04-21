@@ -62,7 +62,24 @@ static struct gpio_keys_button iphone_gpio_keys_table[] = {
 		.wakeup = 0,
 		.debounce_interval = 20,
 	},
+	/* we'll map these to more useful keys until somebody comes up with a better solution */
 	{
+		.gpio = GPIO_BUTTONS_VOLUP,
+		.code = 61,
+		.desc = "CALL",
+		.active_low = 1,
+		.wakeup = 0,
+		.debounce_interval = 20,
+	},
+	{
+		.gpio = GPIO_BUTTONS_VOLDOWN,
+		.code = 102,
+		.desc = "CALL",
+		.active_low = 1,
+		.wakeup = 0,
+		.debounce_interval = 20,
+	},
+/*	{
 		.gpio = GPIO_BUTTONS_VOLUP,
 		.code = 115,
 		.desc = "VOLUME_UP",
@@ -77,7 +94,7 @@ static struct gpio_keys_button iphone_gpio_keys_table[] = {
 		.active_low = 1,
 		.wakeup = 0,
 		.debounce_interval = 20,
-	},
+	},*/
 };
 
 static struct gpio_keys_platform_data iphone_gpio_keys_data = {
