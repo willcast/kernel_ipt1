@@ -2135,6 +2135,100 @@ static int lbs_set_wap(struct net_device *dev, struct iw_request_info *info,
 	return ret;
 }
 
+extern int libertas_current_scan_mode;
+
+static int lbs_priv_cmds(struct net_device *dev, struct iw_request_info *info,
+		   struct iw_point *dwrq, char *extra)
+{
+	int ret = 0;
+	struct lbs_private *priv = dev->ml_priv;
+
+	lbs_deb_enter(LBS_DEB_WEXT);
+
+	extra = kzalloc(dwrq->length, GFP_KERNEL);
+	if(!extra)
+	{
+		lbs_deb_leave(LBS_DEB_WEXT);
+		return -ENOMEM;
+	}
+
+	if(copy_from_user(extra, dwrq->pointer, dwrq->length))
+	{
+		ret = -EFAULT;
+		goto out;
+	}
+
+	if(strncasecmp(extra, "START", dwrq->length) == 0)
+	{
+		printk("libertas: ignoring START command\n");
+	} else if(strncasecmp(extra, "STOP", dwrq->length) == 0)
+	{
+		printk("libertas: ignoring STOP command\n");
+	} else if(strncasecmp(extra, "RSSI", dwrq->length) == 0)
+	{
+		if (priv->connect_status == LBS_CONNECTED)
+		{
+			int rssi;
+			int level;
+			int noise;
+
+			level = CAL_RSSI(priv->SNR[TYPE_BEACON][TYPE_NOAVG], priv->NF[TYPE_BEACON][TYPE_NOAVG]);
+
+			if (priv->NF[TYPE_BEACON][TYPE_NOAVG] == 0)
+				noise = MRVDRV_NF_DEFAULT_SCAN_VALUE;
+			else
+				noise = CAL_NF(priv->NF[TYPE_BEACON][TYPE_NOAVG]);
+
+			rssi = level - noise;
+
+			memcpy(extra, priv->curbssparams.ssid, priv->curbssparams.ssid_len);
+			sprintf(extra + priv->curbssparams.ssid_len, " Rssi %d", rssi);
+
+			dwrq->length = strlen(extra) + 1;
+
+			if(copy_to_user(dwrq->pointer, extra, dwrq->length))
+			{
+				ret = -EFAULT;
+				goto out;
+			}
+		} else {
+			ret = -1;
+			goto out;
+		}
+	} else if(strncasecmp(extra, "LINKSPEED", dwrq->length) == 0)
+	{
+		sprintf(extra, "LinkSpeed %d", (priv->cur_rate * 5) / 10);
+		dwrq->length = strlen(extra) + 1;
+		if(copy_to_user(dwrq->pointer, extra, dwrq->length))
+		{
+			ret = -EFAULT;
+			goto out;
+		}
+	} else if(strncasecmp(extra, "MACADDR", dwrq->length) == 0)
+	{
+		sprintf(extra, "Macaddr = %02X.%02X.%02X.%02X.%02X.%02X",
+				priv->current_addr[0], priv->current_addr[1], priv->current_addr[2],
+				priv->current_addr[3], priv->current_addr[4], priv->current_addr[5]);
+		dwrq->length = strlen(extra) + 1;
+		if(copy_to_user(dwrq->pointer, extra, dwrq->length))
+		{
+			ret = -EFAULT;
+			goto out;
+		}
+	} else if(strncasecmp(extra, "SCAN-ACTIVE", dwrq->length) == 0)
+	{
+		libertas_current_scan_mode = CMD_SCAN_TYPE_ACTIVE;
+	} else if(strncasecmp(extra, "SCAN-PASSIVE", dwrq->length) == 0)
+	{
+		libertas_current_scan_mode = CMD_SCAN_TYPE_PASSIVE;
+	}
+
+out:
+	kfree(extra);
+	lbs_deb_leave(LBS_DEB_WEXT);
+	return ret;
+}
+
 /*
  * iwconfig settable callbacks
  */
@@ -2151,7 +2245,7 @@ static const iw_handler lbs_handler[] = {
 	(iw_handler) NULL,	/* SIOCGIWSENS */
 	(iw_handler) NULL,	/* SIOCSIWRANGE */
 	(iw_handler) lbs_get_range,	/* SIOCGIWRANGE */
-	(iw_handler) NULL,	/* SIOCSIWPRIV */
+	(iw_handler) lbs_priv_cmds,	/* SIOCSIWPRIV */
 	(iw_handler) NULL,	/* SIOCGIWPRIV */
 	(iw_handler) NULL,	/* SIOCSIWSTATS */
 	(iw_handler) NULL,	/* SIOCGIWSTATS */

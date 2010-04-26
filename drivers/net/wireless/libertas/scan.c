@@ -58,6 +58,8 @@
 
 #define DEFAULT_MAX_SCAN_AGE (15 * HZ)
 
+int libertas_current_scan_mode = CMD_SCAN_TYPE_ACTIVE;
+
 static int lbs_ret_80211_scan(struct lbs_private *priv, unsigned long dummy,
 			      struct cmd_header *resp);
 
@@ -158,7 +160,7 @@ static int lbs_scan_create_channel_list(struct lbs_private *priv,
 	 *   be changed to passive on a per channel basis if restricted by
 	 *   regulatory requirements (11d or 11h)
 	 */
-	scantype = CMD_SCAN_TYPE_ACTIVE;
+	scantype = libertas_current_scan_mode;
 
 	for (rgnidx = 0; rgnidx < ARRAY_SIZE(priv->region_channel); rgnidx++) {
 		if (priv->enable11d && (priv->connect_status != LBS_CONNECTED)
