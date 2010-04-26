@@ -27,17 +27,27 @@
 
 /* Begin iPhone ATAG stuff */
 
+#define ATAG_IPHONE_WIFI_TYPE_2G 0
+#define ATAG_IPHONE_WIFI_TYPE_3G 1
+#define ATAG_IPHONE_WIFI_TYPE_IPOD 2
+
+static int iphone_wifi_type = ATAG_IPHONE_WIFI_TYPE_2G;
 static u8 iphone_mac[6];
 static u8 iphone_wifi_cal[0x400];
 static size_t iphone_wifi_cal_size = 0;
 
 #include <asm/setup.h>
 #define ATAG_IPHONE_WIFI 0x54411002
+#define ATAG_IPHONE_TYPE 0x54411003
 
 struct atag_iphone_wifi {
 	u8         mac[6];
 	u32        calSize;
 	u8         cal[];
+};
+
+struct atag_iphone_type {
+	u32        type;
 };
 
 static int __init parse_tag_wifi(const struct tag *tag)
@@ -52,6 +62,15 @@ static int __init parse_tag_wifi(const struct tag *tag)
 	return 0;
 }
 __tagtable(ATAG_IPHONE_WIFI, parse_tag_wifi);
+
+static int __init parse_tag_type(const struct tag *tag)
+{
+	const struct atag_iphone_type* type_tag = (const struct atag_iphone_type*)(((const u8*)tag) + sizeof(struct tag_header));
+
+	iphone_wifi_type = type_tag->type;
+	return 0;
+}
+__tagtable(ATAG_IPHONE_TYPE, parse_tag_type);
 
 /* End iPhone ATAG stuff */
 
@@ -1170,28 +1189,37 @@ static int lbs_setup_firmware(struct lbs_private *priv)
 	// 2G = 0, 3G = 1, iPod = 2
 
 	// 2G config
-	lbs_set_mac_reg(priv, 0xA5AC, 0xC8);
-	lbs_set_mac_reg(priv, 0xA5B0, 0xC8 << 2);
-	lbs_set_mac_reg(priv, 0xA5A8, 0xAF << 3);
-	lbs_set_mac_reg(priv, 0xA5B4, 0xAF << 4);
-	lbs_set_mac_reg(priv, 0xA5A4, 0xAF << 4);
-	lbs_set_mac_reg(priv, 0xA58C, 0x40214);
-	lbs_set_mac_reg(priv, 0xA5A0, 0x524D);
-	lbs_set_mac_reg(priv, 0xA5F0, 0xA2271814);
+	if(iphone_wifi_type == ATAG_IPHONE_WIFI_TYPE_2G)
+	{
+		lbs_set_mac_reg(priv, 0xA5AC, 0xC8);
+		lbs_set_mac_reg(priv, 0xA5B0, 0xC8 << 2);
+		lbs_set_mac_reg(priv, 0xA5A8, 0xAF << 3);
+		lbs_set_mac_reg(priv, 0xA5B4, 0xAF << 4);
+		lbs_set_mac_reg(priv, 0xA5A4, 0xAF << 4);
+		lbs_set_mac_reg(priv, 0xA58C, 0x40214);
+		lbs_set_mac_reg(priv, 0xA5A0, 0x524D);
+		lbs_set_mac_reg(priv, 0xA5F0, 0xA2271814);
+	}
 
 	// 3G config
-/*	lbs_set_mac_reg(priv, 0xA58C, 0x40212);
-	lbs_set_mac_reg(priv, 0xA5A0, 0x524D);
-	lbs_set_mac_reg(priv, 0xA5F0, 0xA2271814);
-	lbs_set_bbp_reg(priv, 0xE9, 0xB1);
-	lbs_set_bbp_reg(priv, 0xEF, 0xC);
-	lbs_set_rf_reg(priv, 0x32, 0x5D);
-	lbs_set_rf_reg(priv, 0x6B, 0xAE);*/
+	if(iphone_wifi_type == ATAG_IPHONE_WIFI_TYPE_3G)
+	{
+		lbs_set_mac_reg(priv, 0xA58C, 0x40212);
+		lbs_set_mac_reg(priv, 0xA5A0, 0x524D);
+		lbs_set_mac_reg(priv, 0xA5F0, 0xA2271814);
+		lbs_set_bbp_reg(priv, 0xE9, 0xB1);
+		lbs_set_bbp_reg(priv, 0xEF, 0xC);
+		lbs_set_rf_reg(priv, 0x32, 0x5D);
+		lbs_set_rf_reg(priv, 0x6B, 0xAE);
+	}
 
 	// iPod touch config
-/*	lbs_set_mac_reg(priv, 0xA58C, 0x40212);
-	lbs_set_mac_reg(priv, 0xA5A0, 0xD24D);
-	lbs_set_mac_reg(priv, 0xA5F0, 0xA027181C);*/
+	if(iphone_wifi_type == ATAG_IPHONE_WIFI_TYPE_IPOD)
+	{
+		lbs_set_mac_reg(priv, 0xA58C, 0x40212);
+		lbs_set_mac_reg(priv, 0xA5A0, 0xD24D);
+		lbs_set_mac_reg(priv, 0xA5F0, 0xA027181C);
+	}
 
 	/* Read power levels if available */
 	ret = lbs_get_tx_power(priv, &curlevel, &minlevel, &maxlevel);
