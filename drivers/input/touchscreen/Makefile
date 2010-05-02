@@ -7,6 +7,7 @@
 wm97xx-ts-y := wm97xx-core.o
 
 obj-$(CONFIG_TOUCHSCREEN_APPLE_IPHONE)	+= iphone-mt.o
+obj-$(CONFIG_TOUCHSCREEN_APPLE_ZEPHYR2) += zephyr2.o
 obj-$(CONFIG_TOUCHSCREEN_AD7877)	+= ad7877.o
 obj-$(CONFIG_TOUCHSCREEN_AD7879)	+= ad7879.o
 obj-$(CONFIG_TOUCHSCREEN_ADS7846)	+= ads7846.o
