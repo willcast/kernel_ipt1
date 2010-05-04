@@ -74,8 +74,6 @@ static u8* InputPacket;
 static u8* GetInfoPacket;
 static u8* GetResultPacket;
 
-static int MultitouchIRQ;
-
 static int InterfaceVersion;
 static int MaxPacketSize;
 static int FamilyID;
@@ -464,7 +462,7 @@ static bool z2_readFrameLength(int* len)
 //static spinlock_t z2_readFrame_lock;
 static int z2_readFrame(void)
 {
-	unsigned long flags = 0;
+//	unsigned long flags = 0;
     int ret = 0;
     int len = 0;
 
@@ -954,9 +952,6 @@ static irqreturn_t z2_irq(int irq, void* pToken)
 	if(!FirmwareLoaded)
 		return IRQ_HANDLED;
 
-	if(!MultitouchIRQ)
-		MultitouchIRQ = irq;
-
 	spin_unlock_wait(&z2_irq_lock);
 	spin_lock_irqsave(&z2_irq_lock, flags);
 	
@@ -1205,7 +1200,7 @@ int z2_setup(const u8* constructedFirmware, int constructedFirmwareLen, const u8
 	}
 
 
-	input_dev->name = "iPhone Zephyr Multitouch Screen";
+	input_dev->name = "iPhone Zephyr2 Multitouch Screen";
 	input_dev->phys = "multitouch0";
 	input_dev->id.vendor = 0x05AC;
 	input_dev->id.product = 0;
@@ -1264,7 +1259,7 @@ static void got_cal(const struct firmware* fw, void *context)
 	memcpy(cal_fw, fw->data, fw->size);
 
 	printk("zephyr2: initializing multitouch\n");
-	multitouch_setup(constructed_fw, constructed_fw_size, proxcal_fw, proxcal_fw_size, cal_fw, cal_fw_size);
+	z2_setup(constructed_fw, constructed_fw_size, proxcal_fw, proxcal_fw_size, cal_fw, cal_fw_size);
 
 	/* caller will call release_firmware */
 }
