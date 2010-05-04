@@ -28,6 +28,9 @@
 #define MAX_FINGER_ORIENTATION  16384
 #define MAX_BUFFER_SIZE 0x400
 
+#define NORMAL_SPEED (&MTNormalSpeed)
+#define FAST_SPEED (&MTFastSpeed)
+
 typedef struct MTFrameHeader
 {
 	u8 type;
@@ -69,12 +72,20 @@ typedef struct FingerData
 	u16 unk_1A;
 } FingerData;
 
+typedef struct MTSPISetting
+{
+	int speed;
+	int txDelay;
+	int rxDelay;
+} MTSPISetting;
+
+const MTSPISetting MTNormalSpeed = {83000, 5, 10};
+const MTSPISetting MTFastSpeed = {4500000, 0, 10};
+
 static u8* OutputPacket;
 static u8* InputPacket;
 static u8* GetInfoPacket;
 static u8* GetResultPacket;
-
-static int MultitouchIRQ;
 
 static int InterfaceVersion;
 static int MaxPacketSize;
@@ -95,6 +106,7 @@ static int CurNOP;
 
 static bool FirmwareLoaded = false;
 static bool z2_readFrame_semaphore = false;
+static int z2_irq_count = 0;
 
 static struct device* multitouch_dev = NULL;
 static struct input_dev* input_dev;
@@ -105,19 +117,6 @@ static u8* proxcal_fw;
 static size_t proxcal_fw_size;
 static u8* cal_fw;
 static size_t cal_fw_size;
-
-typedef struct MTSPISetting
-{
-	int speed;
-	int txDelay;
-	int rxDelay;
-} MTSPISetting;
-
-const MTSPISetting MTNormalSpeed = {83000, 5, 10};
-const MTSPISetting MTFastSpeed = {4500000, 0, 10};
-
-#define NORMAL_SPEED (&MTNormalSpeed)
-#define FAST_SPEED (&MTFastSpeed)
 
 static int makeBootloaderDataPacket(u8* output, u32 destAddress, const u8* data, int dataLen, int* cksumOut);
 static void sendExecutePacket(void);
@@ -461,10 +460,8 @@ static bool z2_readFrameLength(int* len)
         return true;
 }
 
-//static spinlock_t z2_readFrame_lock;
 static int z2_readFrame(void)
 {
-	unsigned long flags = 0;
     int ret = 0;
     int len = 0;
 
@@ -473,10 +470,6 @@ static int z2_readFrame(void)
 
 	z2_readFrame_semaphore = true;
 
-	//spin_unlock_wait(&z2_readFrame_lock);
-	//spin_lock_irqsave(&z2_readFrame_lock, flags);
-	//spin_lock(&z2_readFrame_lock);
-	
 	if(!z2_readFrameLength(&len))
 	{
 			printk("zephyr2: error getting frame length\r\n");
@@ -503,9 +496,6 @@ static int z2_readFrame(void)
 			else
 					CurNOP = 1;
 	}
-
-	//spin_unlock_irqrestore(&z2_readFrame_lock, flags);
-	//spin_unlock(&z2_readFrame_lock);
 
 	z2_readFrame_semaphore = false;
 
@@ -936,11 +926,15 @@ static int makeBootloaderDataPacket(u8* output, u32 destAddress, const u8* data,
 
 static void z2_irq_handler(struct work_struct* work)
 {
+	if(z2_irq_count <= 0)
+		return;
+
 	do
 	{
-		printk("zephyr2: Interrupt handled\n");
+		z2_irq_count--;
+		//printk("zephyr2: Interrupt handled\n");
 	}
-	while(z2_readFrame());
+	while(z2_readFrame() && z2_irq_count > 0);
 }
 DECLARE_WORK(z2_queue, &z2_irq_handler);
 
@@ -949,21 +943,20 @@ static irqreturn_t z2_irq(int irq, void* pToken)
 {
 	unsigned long flags = 0;
 
-	printk("zephyr2: Interrupt comes in\n");
+	//printk("zephyr2: Interrupt comes in\n");
 
 	if(!FirmwareLoaded)
 		return IRQ_HANDLED;
 
-	if(!MultitouchIRQ)
-		MultitouchIRQ = irq;
-
 	spin_unlock_wait(&z2_irq_lock);
 	spin_lock_irqsave(&z2_irq_lock, flags);
 	
+	z2_irq_count++;
 	schedule_work(&z2_queue);
 
 	spin_unlock_irqrestore(&z2_irq_lock, flags);
-	printk("zephyr2: Interrupt queued\n");
+	//printk("zephyr2: Interrupt queued\n");
+	//
 	return IRQ_HANDLED;
 }
 
@@ -977,14 +970,14 @@ int z2_setup(const u8* constructedFirmware, int constructedFirmwareLen, const u8
 
 	if(!prox_cal)
 	{
-			printk("zephyr2: could not find proximity calibration data\n");
-			return -1;
+		printk("zephyr2: could not find proximity calibration data\n");
+		return -1;
 	}
 
 	if(!cal)
 	{
-			printk("zephyr2: could not find calibration data\n");
-			return -1;
+		printk("zephyr2: could not find calibration data\n");
+		return -1;
 	}
 
 	printk("zephyr2: Firmware at 0x%08x - 0x%08x\n",
@@ -1015,57 +1008,57 @@ int z2_setup(const u8* constructedFirmware, int constructedFirmwareLen, const u8
 	printk("zephyr2: Sending Firmware...\n");
 	if(!loadConstructedFirmware(constructedFirmware, constructedFirmwareLen))
 	{
-                printk("zephyr2: could not load preconstructed firmware\n");
-                err = -1;
-        	kfree(InputPacket);
-	        kfree(OutputPacket);
-	        kfree(GetInfoPacket);
-	        kfree(GetResultPacket);
-	        return err;
+		printk("zephyr2: could not load preconstructed firmware\n");
+		err = -1;
+		kfree(InputPacket);
+		kfree(OutputPacket);
+		kfree(GetInfoPacket);
+		kfree(GetResultPacket);
+		return err;
 	}
 
-        printk("zephyr2: loaded %d byte preconstructed firmware\n", constructedFirmwareLen);
+	printk("zephyr2: loaded %d byte preconstructed firmware\n", constructedFirmwareLen);
 
-        if(!loadProxCal(prox_cal, prox_cal_size))
-        {
-                printk("zephyr2: could not load proximity calibration data\n");
-                err = -1;
-	        kfree(InputPacket);
-	        kfree(OutputPacket);
-	        kfree(GetInfoPacket);
-	        kfree(GetResultPacket);
-	        return err;
-        }
+	if(!loadProxCal(prox_cal, prox_cal_size))
+	{
+		printk("zephyr2: could not load proximity calibration data\n");
+		err = -1;
+		kfree(InputPacket);
+		kfree(OutputPacket);
+		kfree(GetInfoPacket);
+		kfree(GetResultPacket);
+		return err;
+	}
 
-        printk("zephyr2: loaded %d byte proximity calibration data\n", prox_cal_size);
+	printk("zephyr2: loaded %d byte proximity calibration data\n", prox_cal_size);
 
-        if(!loadCal(cal, cal_size))
-        {
-                printk("zephyr2: could not load calibration data\n");
-                err = -1;
-	        kfree(InputPacket);
-	        kfree(OutputPacket);
-	        kfree(GetInfoPacket);
-	        kfree(GetResultPacket);
-	        return err;
-        }
+	if(!loadCal(cal, cal_size))
+	{
+		printk("zephyr2: could not load calibration data\n");
+		err = -1;
+		kfree(InputPacket);
+		kfree(OutputPacket);
+		kfree(GetInfoPacket);
+		kfree(GetResultPacket);
+		return err;
+	}
 
 
-        printk("zephyr2: loaded %d byte calibration data\n", cal_size);
+	printk("zephyr2: loaded %d byte calibration data\n", cal_size);
 
-        if(!z2_calibrate())
-        {
-                err = -1;
-	        kfree(InputPacket);
-	        kfree(OutputPacket);
-	        kfree(GetInfoPacket);
-	        kfree(GetResultPacket);
-        	return err;
-        }
+	if(!z2_calibrate())
+	{
+			err = -1;
+		kfree(InputPacket);
+		kfree(OutputPacket);
+		kfree(GetInfoPacket);
+		kfree(GetResultPacket);
+		return err;
+	}
 
-        sendExecutePacket();
+	sendExecutePacket();
 
-        msleep(1);
+	msleep(1);
 
 	printk("zephyr2: Determining interface version...\n");
 	if(!determineInterfaceVersion())
@@ -1080,31 +1073,31 @@ int z2_setup(const u8* constructedFirmware, int constructedFirmwareLen, const u8
 
 	reportBuffer = (u8*) kmalloc(MaxPacketSize, GFP_KERNEL);
 
-        if(!getReport(MT_INFO_FAMILYID, reportBuffer, &reportLen))
-        {
-                printk("zephyr2: failed getting family id!\n");
-                err = -1;
-	        kfree(reportBuffer);
-	        kfree(InputPacket);
-	        kfree(OutputPacket);
-	        kfree(GetInfoPacket);
-        	kfree(GetResultPacket);
-	        return err;
-        }
+	if(!getReport(MT_INFO_FAMILYID, reportBuffer, &reportLen))
+	{
+			printk("zephyr2: failed getting family id!\n");
+			err = -1;
+		kfree(reportBuffer);
+		kfree(InputPacket);
+		kfree(OutputPacket);
+		kfree(GetInfoPacket);
+		kfree(GetResultPacket);
+		return err;
+	}
 
 	FamilyID = reportBuffer[0];
 
-        if(!getReport(MT_INFO_SENSORINFO, reportBuffer, &reportLen))
-        {
-                printk("zephyr2: failed getting sensor info!\r\n");
-                err = -1;
-	        kfree(reportBuffer);
-	        kfree(InputPacket);
-	        kfree(OutputPacket);
-	        kfree(GetInfoPacket);
-	        kfree(GetResultPacket);
-	        return err;
-        }
+	if(!getReport(MT_INFO_SENSORINFO, reportBuffer, &reportLen))
+	{
+		printk("zephyr2: failed getting sensor info!\r\n");
+		err = -1;
+		kfree(reportBuffer);
+		kfree(InputPacket);
+		kfree(OutputPacket);
+		kfree(GetInfoPacket);
+		kfree(GetResultPacket);
+		return err;
+	}
 
 	SensorColumns = reportBuffer[2];
 	SensorRows = reportBuffer[1];
@@ -1112,54 +1105,54 @@ int z2_setup(const u8* constructedFirmware, int constructedFirmwareLen, const u8
 	Endianness = reportBuffer[0];
 
 
-        if(!getReport(MT_INFO_SENSORREGIONDESC, reportBuffer, &reportLen))
-        {
-                printk("zephyr2: failed getting sensor region descriptor!\r\n");
-                err = -1;
-	        kfree(reportBuffer);
-	        kfree(InputPacket);
-	        kfree(OutputPacket);
-	        kfree(GetInfoPacket);
-	        kfree(GetResultPacket);
-	        return err;
-        }
+	if(!getReport(MT_INFO_SENSORREGIONDESC, reportBuffer, &reportLen))
+	{
+		printk("zephyr2: failed getting sensor region descriptor!\r\n");
+		err = -1;
+		kfree(reportBuffer);
+		kfree(InputPacket);
+		kfree(OutputPacket);
+		kfree(GetInfoPacket);
+		kfree(GetResultPacket);
+		return err;
+	}
 
 
 	SensorRegionDescriptorLen = reportLen;
 	SensorRegionDescriptor = (u8*) kmalloc(reportLen, GFP_KERNEL);
 	memcpy(SensorRegionDescriptor, reportBuffer, reportLen);
 
-        if(!getReport(MT_INFO_SENSORREGIONPARAM, reportBuffer, &reportLen))
-        {
-                printk("zephyr2: failed getting sensor region param!\r\n");
-                err = -1;
-	        kfree(SensorRegionDescriptor);
-	        kfree(reportBuffer);
-	        kfree(InputPacket);
-	        kfree(OutputPacket);
-	        kfree(GetInfoPacket);
-	        kfree(GetResultPacket);
-	        return err;
-        }
+	if(!getReport(MT_INFO_SENSORREGIONPARAM, reportBuffer, &reportLen))
+	{
+		printk("zephyr2: failed getting sensor region param!\r\n");
+		err = -1;
+		kfree(SensorRegionDescriptor);
+		kfree(reportBuffer);
+		kfree(InputPacket);
+		kfree(OutputPacket);
+		kfree(GetInfoPacket);
+		kfree(GetResultPacket);
+		return err;
+	}
 
 
 	SensorRegionParamLen = reportLen;
 	SensorRegionParam = (u8*) kmalloc(reportLen, GFP_KERNEL);
 	memcpy(SensorRegionParam, reportBuffer, reportLen);
 
-        if(!getReport(MT_INFO_SENSORDIM, reportBuffer, &reportLen))
-        {
-                printk("zephyr2: failed getting sensor surface dimensions!\r\n");
-                err = -1;
-	        kfree(SensorRegionParam);
-	        kfree(SensorRegionDescriptor);
-	        kfree(reportBuffer);
-	        kfree(InputPacket);
-	        kfree(OutputPacket);
-	        kfree(GetInfoPacket);
-	        kfree(GetResultPacket);
-	        return err;
-        }
+	if(!getReport(MT_INFO_SENSORDIM, reportBuffer, &reportLen))
+	{
+		printk("zephyr2: failed getting sensor surface dimensions!\r\n");
+		err = -1;
+		kfree(SensorRegionParam);
+		kfree(SensorRegionDescriptor);
+		kfree(reportBuffer);
+		kfree(InputPacket);
+		kfree(OutputPacket);
+		kfree(GetInfoPacket);
+		kfree(GetResultPacket);
+		return err;
+	}
 
 
 	SensorWidth = *((u32*)&reportBuffer[0]);
@@ -1173,6 +1166,7 @@ int z2_setup(const u8* constructedFirmware, int constructedFirmwareLen, const u8
 	printk("BCD Version              : 0x%x\n", BCDVersion);
 	printk("Endianness               : 0x%x\n", Endianness);
 	printk("Sensor region descriptor :");
+
 	for(i = 0; i < SensorRegionDescriptorLen; ++i)
 		printk(" %02x", SensorRegionDescriptor[i]);
 	printk("\n");
@@ -1182,30 +1176,29 @@ int z2_setup(const u8* constructedFirmware, int constructedFirmwareLen, const u8
 		printk(" %02x", SensorRegionParam[i]);
 	printk("\n");
 
-        if(BCDVersion > 0x23)
-                FlipNOP = true;
-        else
-                FlipNOP = false;
+	if(BCDVersion > 0x23)
+			FlipNOP = true;
+	else
+			FlipNOP = false;
 
-        kfree(reportBuffer);
+	kfree(reportBuffer);
 
 
 	input_dev = input_allocate_device();
 	if(!input_dev)
 	{
-                err = -1;
-	        kfree(SensorRegionParam);
-	        kfree(SensorRegionDescriptor);
-	        kfree(reportBuffer);
-	        kfree(InputPacket);
-	        kfree(OutputPacket);
-	        kfree(GetInfoPacket);
-	        kfree(GetResultPacket);
-	        return err;
+		err = -1;
+		kfree(SensorRegionParam);
+		kfree(SensorRegionDescriptor);
+		kfree(reportBuffer);
+		kfree(InputPacket);
+		kfree(OutputPacket);
+		kfree(GetInfoPacket);
+		kfree(GetResultPacket);
+		return err;
 	}
 
-
-	input_dev->name = "iPhone Zephyr Multitouch Screen";
+	input_dev->name = "iPhone Zephyr 2 Multitouch Screen";
 	input_dev->phys = "multitouch0";
 	input_dev->id.vendor = 0x05AC;
 	input_dev->id.product = 0;
@@ -1229,15 +1222,15 @@ int z2_setup(const u8* constructedFirmware, int constructedFirmwareLen, const u8
 	ret = input_register_device(input_dev);
 	if(ret != 0)
 	{
-                err = -1;
-        	kfree(SensorRegionParam);
-	        kfree(SensorRegionDescriptor);
-	        kfree(reportBuffer);
-	        kfree(InputPacket);
-	        kfree(OutputPacket);
-	        kfree(GetInfoPacket);
-	        kfree(GetResultPacket);
-	        return err;
+		err = -1;
+		kfree(SensorRegionParam);
+		kfree(SensorRegionDescriptor);
+		kfree(reportBuffer);
+		kfree(InputPacket);
+		kfree(OutputPacket);
+		kfree(GetInfoPacket);
+		kfree(GetResultPacket);
+		return err;
 	}
 
     CurNOP = 1;
@@ -1264,7 +1257,7 @@ static void got_cal(const struct firmware* fw, void *context)
 	memcpy(cal_fw, fw->data, fw->size);
 
 	printk("zephyr2: initializing multitouch\n");
-	multitouch_setup(constructed_fw, constructed_fw_size, proxcal_fw, proxcal_fw_size, cal_fw, cal_fw_size);
+	z2_setup(constructed_fw, constructed_fw_size, proxcal_fw, proxcal_fw_size, cal_fw, cal_fw_size);
 
 	/* caller will call release_firmware */
 }
