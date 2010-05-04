@@ -8,15 +8,19 @@
 #include <mach/gpio.h>
 
 #ifdef CONFIG_IPHONE
-#	define MT_GPIO_POWER 0x804
-#	define MT_ATN_INTERRUPT 0xa3
-#	define MT_SPI 2
-#	define MT_SPI_CS GPIO_SPI2_CS0
+#define MT_GPIO_POWER 0x804
+#define MT_ATN_INTERRUPT 0xa3
 #else
-#	define MT_GPIO_POWER 0x701
-#	define MT_ATN_INTERRUPT 0x9b
-#	define MT_SPI 1
-#	define MT_SPI_CS GPIO_SPI1_CS0
+#define MT_GPIO_POWER 0x701
+#define MT_ATN_INTERRUPT 0x9b
+#endif
+
+#ifdef CONFIG_3G
+#define MT_SPI 1
+#define MT_SPI_CS GPIO_SPI1_CS0
+#else
+#define MT_SPI 2
+#define MT_SPI_CS GPIO_SPI2_CS0
 #endif
 
 #define MT_INFO_FAMILYID 0xD1
@@ -24,9 +28,6 @@
 #define MT_INFO_SENSORREGIONDESC 0xD0
 #define MT_INFO_SENSORREGIONPARAM 0xA1
 #define MT_INFO_SENSORDIM 0xD9
-
-#define MAX_FINGER_ORIENTATION  16384
-#define MAX_BUFFER_SIZE 0x400
 
 typedef struct MTFrameHeader
 {
@@ -69,17 +70,21 @@ typedef struct FingerData
 	u16 unk_1A;
 } FingerData;
 
+#define MAX_FINGER_ORIENTATION  16384
+
+static irqreturn_t multitouch_atn(int irq, void* pToken);
+
+volatile int GotATN;
+spinlock_t GotATNLock;
+
 static u8* OutputPacket;
 static u8* InputPacket;
 static u8* GetInfoPacket;
 static u8* GetResultPacket;
 
-static int MultitouchIRQ;
-
 static int InterfaceVersion;
 static int MaxPacketSize;
 static int FamilyID;
-static int FlipNOP;
 static int SensorWidth;
 static int SensorHeight;
 static int SensorColumns;
@@ -91,20 +96,8 @@ static int SensorRegionDescriptorLen;
 static u8* SensorRegionParam;
 static int SensorRegionParamLen;
 
+// This is flipped between 0x64 and 0x65 for every transaction
 static int CurNOP;
-
-static bool FirmwareLoaded = false;
-static bool z2_readFrame_semaphore = false;
-
-static struct device* multitouch_dev = NULL;
-static struct input_dev* input_dev;
-
-static u8* constructed_fw;
-static size_t constructed_fw_size;
-static u8* proxcal_fw;
-static size_t proxcal_fw_size;
-static u8* cal_fw;
-static size_t cal_fw_size;
 
 typedef struct MTSPISetting
 {
@@ -119,1051 +112,185 @@ const MTSPISetting MTFastSpeed = {4500000, 0, 10};
 #define NORMAL_SPEED (&MTNormalSpeed)
 #define FAST_SPEED (&MTFastSpeed)
 
-static int makeBootloaderDataPacket(u8* output, u32 destAddress, const u8* data, int dataLen, int* cksumOut);
-static void sendExecutePacket(void);
+static int mt_spi_txrx(const MTSPISetting* setting, const u8* outBuffer, int outLen, u8* inBuffer, int inLen);
+static int mt_spi_tx(const MTSPISetting* setting, const u8* outBuffer, int outLen);
 
-static bool loadConstructedFirmware(const u8* firmware, int len);
-static int loadProxCal(const u8* firmware, int len);
-static int loadCal(const u8* firmware, int len);
+static int makeBootloaderDataPacket(u8* output, u32 destAddress, const u8* data, int dataLen, int* cksumOut);
+static bool verifyUpload(int checksum);
+static void sendExecutePacket(void);
+static void sendBlankDataPacket(void);
+
+static bool loadASpeedFirmware(const u8* firmware, int len);
+static bool loadMainFirmware(const u8* firmware, int len);
 static bool determineInterfaceVersion(void);
 
 static bool getReportInfo(int id, u8* err, u16* len);
 static bool getReport(int id, u8* buffer, int* outLen);
 
+static bool readFrameLength(int* len);
+static int readFrame(void);
+static bool readResultData(int len);
+
 static void newPacket(const u8* data, int len);
+static void multitouch_atn_handler(struct work_struct* work);
 
-static u32 z2_getU32(u8 *_buf)
-{
-	return (_buf[2] << 24)
-		| (_buf[3] << 16)
-		| (_buf[0] << 8)
-		| _buf[1];
-}
+bool MultitouchOn = false;
+bool FirmwareLoaded = false;
 
-static void z2_makeU32(u8 *_buf, u32 _val)
-{
-	_buf[2] = _val >> 24;
-	_buf[3] = (_val >> 16) & 0xFF;
-	_buf[0] = (_val >> 8) & 0xFF;
-	_buf[1] = _val & 0xFF;
-}
-static u16 z2_getU16(u8 *_buf)
-{
-	return (_buf[0] << 8)
-		| _buf[1];
-}
+static struct device* multitouch_dev = NULL;
+struct input_dev* input_dev;
 
-static void z2_makeU16(u8 *_buf, u16 _val)
-{
-	_buf[0] = _val >> 8;
-	_buf[1] = _val & 0xFF;
-}
+u8* aspeed_fw;
+size_t aspeed_fw_size;
+u8* main_fw;
+size_t main_fw_size;
 
-static u16 z2_getU16R(u8 *_buf)
-{
-	return (_buf[1] << 8)
-		| _buf[0];
-}
+DECLARE_WORK(multitouch_workqueue, &multitouch_atn_handler);
 
-static void z2_makeU16R(u8 *_buf, u16 _val)
+void multitouch_on(void)
 {
-	_buf[1] = _val >> 8;
-	_buf[0] = _val & 0xFF;
-}
-
-static u32 z2_u32Sum(u8 *_buf, u32 _len)
-{
-	u32 i;
-	u32 checksum = 0;
-
-	for(i = 0; i < _len; i++)
+	if(!MultitouchOn)
 	{
-		checksum += _buf[i];
+		printk("multitouch: powering on\n");
+		iphone_gpio_pin_output(MT_GPIO_POWER, 0);
+		msleep(200);
+		iphone_gpio_pin_output(MT_GPIO_POWER, 1);
+
+		msleep(15);
+		MultitouchOn = true;
 	}
-
-	return checksum;
 }
 
-static u16 z2_u16Sum(u8 *_buf, u32 _len)
-{
-	u32 i;
-	u16 checksum = 0;
-
-	for(i = 0; i < _len; i++)
-	{
-		checksum += _buf[i];
-	}
-
-	return checksum;
-}
-
-static u16 z2_makeU16Sum(u8 *_buf, u32 _len)
-{
-	u16 chk = z2_u16Sum(_buf, _len);
-	z2_makeU16(_buf+_len, chk);
-	return chk;
-}
-
-static u16 z2_makeU16SumR(u8 *_buf, u32 _len)
-{
-	u16 chk = z2_u16Sum(_buf, _len);
-	z2_makeU16R(_buf+_len, chk);
-	return chk;
-}
-
-static u32 z2_makeU32Sum(u8 *_buf, u32 _len)
-{
-	u32 chk = z2_u32Sum(_buf, _len);
-	z2_makeU32(_buf+_len, chk);
-	return chk;
-}
-
-int z2_tx(const MTSPISetting* setting, const u8* outBuffer, int outLen)
-{
-	int ret;
-	iphone_spi_set_baud(MT_SPI, setting->speed, SPIOption13Setting0, 1, 1, 1);
-	iphone_gpio_pin_output(MT_SPI_CS, 0);
-	msleep(setting->txDelay);
-	ret = iphone_spi_tx(MT_SPI, outBuffer, outLen, true, false);
-	iphone_gpio_pin_output(MT_SPI_CS, 1);
-	return ret;
-}
-
-int z2_txrx(const MTSPISetting* setting, const u8* outBuffer, int outLen, u8* inBuffer, int inLen)
-{
-	int ret;
-	iphone_spi_set_baud(MT_SPI, setting->speed, SPIOption13Setting0, 1, 1, 1);
-	iphone_gpio_pin_output(MT_SPI_CS, 0);
-	msleep(setting->rxDelay);
-	ret = iphone_spi_txrx(MT_SPI, outBuffer, outLen, inBuffer, inLen, true);
-	iphone_gpio_pin_output(MT_SPI_CS, 1);
-	return ret;
-}
-
-static u16 z2_shortAck(void)
-{
-	u8 tx[2];
-	u8 rx[2];
-
-	z2_makeU16(tx, 0x1aa1);
-
-	//while(GotATN == 0);
-	//	--GotATN;
-
-	z2_txrx(NORMAL_SPEED, tx, sizeof(tx), rx, sizeof(rx));
-
-	return z2_getU16(rx);
-}
-
-static u32 z2_longAck(void)
-{
-	u8 tx[8];
-	u8 rx[8];
-
-	//while(GotATN == 0);
-	//	--GotATN;
-
-	z2_makeU16(tx, 0x1aa1);
-
-	z2_makeU16(tx+2, 0x18e1);
-	z2_makeU16(tx+4, 0x18e1);
-	z2_makeU16(tx+6, 0x18e1);
-
-	z2_txrx(NORMAL_SPEED, tx, sizeof(tx), rx, sizeof(rx));
-
-	return z2_getU32(rx+2);
-}
-
-static u32 readRegister(u32 address)
-{
-	u8 tx[8];
-	u8 rx[8];
-
-	z2_makeU16(tx, 0x1c73);
-	z2_makeU32(tx+2, address);
-	z2_makeU16Sum(tx+2, 4);
-
-	//GotATN = 0;
-	z2_txrx(NORMAL_SPEED, tx, sizeof(tx), rx, sizeof(rx));
-	udelay(300);
-
-	return z2_longAck();
-}
-
-static u32 writeRegister(u32 address, u32 value, u32 mask)
-{
-	u8 tx[16];
-	u8 rx[16];
-
-	z2_makeU16(tx, 0x1e33);
-	z2_makeU32(tx+2, address);
-	z2_makeU32(tx+6, mask);
-	z2_makeU32(tx+10, value);
-	z2_makeU16Sum(tx+2, sizeof(u32)*3);
-
-	//GotATN = 0;
-	z2_txrx(NORMAL_SPEED, tx, sizeof(tx), rx, sizeof(rx));
-	udelay(300);
-
-	return z2_shortAck() == 0x4AD1;
-}
-
-
-static void newPacket(const u8* data, int len)
+int multitouch_setup(const u8* ASpeedFirmware, int ASpeedFirmwareLen, const u8* mainFirmware, int mainFirmwareLen)
 {
 	int i;
-	FingerData* finger;
-	MTFrameHeader* header = (MTFrameHeader*) data;
-	if(header->type != 0x44 && header->type != 0x43)
-		printk("zephyr2: unknown frame type 0x%x\n", header->type);
+	int ret;
 
-	finger = (FingerData*)(data + (header->headerLen));
+	printk("multitouch: A-Speed firmware at 0x%08x - 0x%08x, Main firmware at 0x%08x - 0x%08x\n",
+			(u32) ASpeedFirmware, (u32)(ASpeedFirmware + ASpeedFirmwareLen),
+			(u32) mainFirmware, (u32)(mainFirmware + mainFirmwareLen));
 
-	if(header->headerLen < 12)
-		printk("zephyr2: no finger data in frame\n");
+	OutputPacket = (u8*) kmalloc(0x400, GFP_KERNEL);
+	InputPacket = (u8*) kmalloc(0x400, GFP_KERNEL);
+	GetInfoPacket = (u8*) kmalloc(0x400, GFP_KERNEL);
+	GetResultPacket = (u8*) kmalloc(0x400, GFP_KERNEL);
 
-//	printk("------START------\n");
+	memset(GetInfoPacket, 0x82, 0x400);
+	memset(GetResultPacket, 0x68, 0x400);
 
-	for(i = 0; i < header->numFingers; ++i)
+	request_irq(MT_ATN_INTERRUPT + IPHONE_GPIO_IRQS, multitouch_atn, IRQF_TRIGGER_FALLING, "iphone-multitouch", (void*) 0);
+
+	multitouch_on();
+
+	printk("multitouch: Sending A-Speed firmware...\n");
+	if(!loadASpeedFirmware(ASpeedFirmware, ASpeedFirmwareLen))
 	{
-		input_report_abs(input_dev, ABS_MT_TOUCH_MAJOR, finger->force_major);
-		input_report_abs(input_dev, ABS_MT_TOUCH_MINOR, finger->force_minor);
-		input_report_abs(input_dev, ABS_MT_WIDTH_MAJOR, finger->size_major);
-		input_report_abs(input_dev, ABS_MT_WIDTH_MINOR, finger->size_minor);
-		input_report_abs(input_dev, ABS_MT_ORIENTATION, MAX_FINGER_ORIENTATION - finger->orientation);
-		input_report_abs(input_dev, ABS_MT_POSITION_X, finger->x);
-		input_report_abs(input_dev, ABS_MT_POSITION_Y, SensorHeight - finger->y);
-		input_report_abs(input_dev, ABS_MT_TRACKING_ID, finger->id);
-		input_mt_sync(input_dev);
-/*		printk("zephyr2: finger %d -- id=%d, event=%d, X(%d/%d, vel: %d), Y(%d/%d, vel: %d), radii(%d, %d, %d, orientation: %d), force_minor: %d\n",
-				i, finger->id, finger->event,
-				finger->x, SensorWidth, finger->rel_x,
-				finger->y, SensorHeight, finger->rel_y,
-				finger->force_major, finger->size_major, finger->size_minor, finger->orientation,
-				finger->force_minor);
-
-		//framebuffer_draw_rect(0xFF0000, (finger->x * framebuffer_width()) / SensorWidth - 2 , ((SensorHeight - finger->y) * framebuffer_height()) / SensorHeight - 2, 4, 4);
-		//hexdump((u32) finger, sizeof(FingerData));*/
-		finger = (FingerData*) (((u8*) finger) + header->fingerDataLen);
-	}
-
-	if(header->numFingers > 0)
-	{
-		finger = (FingerData*)(data + (header->headerLen));
-
-		input_report_abs(input_dev, ABS_X, finger->x);
-		input_report_abs(input_dev, ABS_Y, SensorHeight - finger->y);
-		input_report_key(input_dev, BTN_TOUCH, finger->size_minor > 0);
-	}
-
-	input_sync(input_dev);
-
-//	printk("-------END-------\n");
-}
-
-static bool readResultData(int len)
-{
-        u32 checksum;
-        int i;
-        int packetLen;
-
-        if(len > MAX_BUFFER_SIZE)
-		{
-			printk("zephyr2: Result too big for buffer! We have %d bytes, we need %d bytes!\n", MAX_BUFFER_SIZE, len);
-            len = MAX_BUFFER_SIZE;
-		}
-
-        memset(GetResultPacket, 0, MAX_BUFFER_SIZE);
-
-        if(FlipNOP)
-                GetResultPacket[0] = 0xEB;
-        else
-                GetResultPacket[0] = 0xEA;
-
-        GetResultPacket[1] = CurNOP;
-        GetResultPacket[2] = 1;
-
-        checksum = 0;
-        for(i = 0; i < 14; ++i)
-                checksum += GetResultPacket[i];
-
-        GetResultPacket[len - 2] = checksum & 0xFF;
-        GetResultPacket[len - 1] = (checksum >> 8) & 0xFF;
-
-        z2_txrx(NORMAL_SPEED, GetResultPacket, len, InputPacket, len);
-
-        if(InputPacket[0] != 0xEA && !(FlipNOP && InputPacket[0] == 0xEB))
-        {
-                printk("zephyr2: frame header wrong: got 0x%02X\n", InputPacket[0]);
-                msleep(1);
-                return false;
-        }
-
-        checksum = 0;
-        for(i = 0; i < 5; ++i)
-                checksum += InputPacket[i];
-
-        if((checksum & 0xFF) != 0)
-        {
-                printk("zephyr2: LSB of first five bytes of frame not zero: got 0x%02X\n", checksum);
-                msleep(1);
-                return false;
-        }
-
-        packetLen = (InputPacket[2] & 0xFF) | ((InputPacket[3] & 0xFF) << 8);
-
-        if(packetLen <= 2)
-                return true;
-
-        checksum = 0;
-        for(i = 5; i < (5 + packetLen - 2); ++i)
-                checksum += InputPacket[i];
-        if((InputPacket[len - 2] | (InputPacket[len - 1] << 8)) != checksum)
-        {
-                printk("zephyr2: packet checksum wrong 0x%02X instead of 0x%02X\n", checksum, (InputPacket[len - 2] | (InputPacket[len - 1] << 8)));
-                msleep(1);
-                return false;
-        }
-
-        newPacket(InputPacket + 5, packetLen - 2);
-        return true;
-}
-
-static bool z2_readFrameLength(int* len)
-{
-        u8 tx[16];
-        u8 rx[16];
-        u32 checksum;
-
-        memset(tx, 0, sizeof(tx));
-
-        if(FlipNOP)
-                tx[0] = 0xEB;
-        else
-                tx[0] = 0xEA;
-
-        tx[1] = CurNOP;
-        tx[2] = 0;
-
-		z2_makeU16SumR(tx, 14);
-
-        z2_txrx(NORMAL_SPEED, tx, sizeof(tx), rx, sizeof(rx));
-
-        checksum = z2_u16Sum(rx, 14);
-        if((rx[14] | (rx[15] << 8)) != checksum)
-        {
-                udelay(1000);
-                return false;
-        }
-
-        *len = (rx[1] & 0xFF) | ((rx[2] & 0xFF) << 8);
-
-        return true;
-}
-
-//static spinlock_t z2_readFrame_lock;
-static int z2_readFrame(void)
-{
-	unsigned long flags = 0;
-    int ret = 0;
-    int len = 0;
-
-	if(z2_readFrame_semaphore)
+		kfree(InputPacket);
+		kfree(OutputPacket);
+		kfree(GetInfoPacket);
+		kfree(GetResultPacket);
 		return -1;
-
-	z2_readFrame_semaphore = true;
-
-	//spin_unlock_wait(&z2_readFrame_lock);
-	//spin_lock_irqsave(&z2_readFrame_lock, flags);
-	//spin_lock(&z2_readFrame_lock);
-	
-	if(!z2_readFrameLength(&len))
-	{
-			printk("zephyr2: error getting frame length\r\n");
-			len = 0;
-			ret = -1;
 	}
 
-	if(len)
-	{
-			if(!readResultData(len + 5))
-			{
-					printk("zephyr2: error getting frame data\r\n");
-					msleep(1);
-					ret = -1;
-			}
+	msleep(1);
 
-			ret = 1;
+	printk("multitouch: Sending main firmware...\n");
+	if(!loadMainFirmware(mainFirmware, mainFirmwareLen))
+	{
+		kfree(InputPacket);
+		kfree(OutputPacket);
+		kfree(GetInfoPacket);
+		kfree(GetResultPacket);
+		return -1;
 	}
 
-	if(FlipNOP)
-	{
-			if(CurNOP == 1)
-					CurNOP = 2;
-			else
-					CurNOP = 1;
-	}
+	msleep(1);
 
-	//spin_unlock_irqrestore(&z2_readFrame_lock, flags);
-	//spin_unlock(&z2_readFrame_lock);
-
-	z2_readFrame_semaphore = false;
-
-	return ret;
-}
-
-
-static int shortControlRead(int id, u8* buffer, int size)
-{
-        u32 checksum;
-        int i;
-
-        memset(GetInfoPacket, 0, MAX_BUFFER_SIZE);
-        GetInfoPacket[0] = 0xE6;
-        GetInfoPacket[1] = id;
-        GetInfoPacket[2] = 0;
-        GetInfoPacket[3] = size & 0xFF;
-        GetInfoPacket[4] = (size >> 8) & 0xFF;
-
-        checksum = 0;
-        for(i = 0; i < 5; ++i)
-                checksum += GetInfoPacket[i];
-
-        GetInfoPacket[14] = checksum & 0xFF;
-        GetInfoPacket[15] = (checksum >> 8) & 0xFF;
-
-        z2_txrx(NORMAL_SPEED, GetInfoPacket, 16, InputPacket, 16);
-
-        udelay(25);
-
-        GetInfoPacket[2] = 1;
-
-        z2_txrx(NORMAL_SPEED, GetInfoPacket, 16, InputPacket, 16);
-
-        checksum = 0;
-        for(i = 0; i < 14; ++i)
-                checksum += InputPacket[i];
-
-        if((InputPacket[14] | (InputPacket[15] << 8)) != checksum)
-                return false;
-
-        memcpy(buffer, &InputPacket[3], size);
-
-        return true;
-}
-
-static int longControlRead(int id, u8* buffer, int size)
-{
-        u32 checksum;
-        int i;
-
-        memset(GetInfoPacket, 0, 0x200);
-        GetInfoPacket[0] = 0xE7;
-        GetInfoPacket[1] = id;
-        GetInfoPacket[2] = 0;
-        GetInfoPacket[3] = size & 0xFF;
-        GetInfoPacket[4] = (size >> 8) & 0xFF;
-
-        checksum = 0;
-        for(i = 0; i < 5; ++i)
-                checksum += GetInfoPacket[i];
-
-        GetInfoPacket[14] = checksum & 0xFF;
-        GetInfoPacket[15] = (checksum >> 8) & 0xFF;
-
-        z2_txrx(NORMAL_SPEED, GetInfoPacket, 16, InputPacket, 16);
-
-        udelay(25);
-
-        GetInfoPacket[2] = 1;
-        GetInfoPacket[14] = 0;
-        GetInfoPacket[15] = 0;
-        GetInfoPacket[3 + size] = checksum & 0xFF;
-        GetInfoPacket[3 + size + 1] = (checksum >> 8) & 0xFF;
-
-        z2_txrx(NORMAL_SPEED, GetInfoPacket, size + 5, InputPacket, size + 5);
-
-        checksum = 0;
-        for(i = 0; i < (size + 3); ++i)
-                checksum += InputPacket[i];
-
-        if((InputPacket[3 + size] | (InputPacket[3 + size + 1] << 8)) != checksum)
-                return false;
-
-        memcpy(buffer, &InputPacket[3], size);
-
-        return true;
-}
-
-static bool getReportInfo(int id, u8* err, u16* len)
-{
-        u8 tx[16];
-        u8 rx[16];
-        u32 checksum;
-        int i;
-        int try;
-
-        for(try = 0; try < 4; ++try)
-        {
-                memset(tx, 0, sizeof(tx));
-
-                tx[0] = 0xE3;
-                tx[1] = id;
-
-                checksum = 0;
-                for(i = 0; i < 14; ++i)
-                        checksum += tx[i];
-
-                tx[14] = checksum & 0xFF;
-                tx[15] = (checksum >> 8) & 0xFF;
-
-                z2_txrx(NORMAL_SPEED, tx, sizeof(tx), rx, sizeof(rx));
-
-                udelay(25);
-
-                z2_txrx(NORMAL_SPEED, tx, sizeof(tx), rx, sizeof(rx));
-
-                if(rx[0] != 0xE3)
-                        continue;
-
-                checksum = 0;
-                for(i = 0; i < 14; ++i)
-                        checksum += rx[i];
-
-                if((rx[14] | (rx[15] << 8)) != checksum)
-                        continue;
-
-                *err = rx[2];
-                *len = (rx[4] << 8) | rx[3];
-
-                return true;
-        }
-
-        return false;
-}
-
-static bool getReport(int id, u8* buffer, int* outLen)
-{
-        u8 err;
-        u16 len;
-        int try;
-
-        if(!getReportInfo(id, &err, &len))
-                return false;
-
-        if(err)
-                return false;
-
-        *outLen = len;
-
-        for(try = 0; try < 4; ++try)
-        {
-                if(len < 12)
-                {
-                        if(shortControlRead(id, buffer, len))
-                                return true;
-                } else
-                {
-                        if(longControlRead(id, buffer, len))
-                                return true;
-                }
-        }
-
-        return false;
-}
-
-static bool determineInterfaceVersion(void)
-{
-        u8 tx[16];
-        u8 rx[16];
-        u32 checksum;
-        int i;
-        int try;
-
-        memset(tx, 0, sizeof(tx));
-
-        tx[0] = 0xE2;
-
-        checksum = 0;
-        for(i = 0; i < 14; ++i)
-                checksum += tx[i];
-
-        // Note that the byte order changes to little-endian after main firmware load
-
-        tx[14] = checksum & 0xFF;
-        tx[15] = (checksum >> 8) & 0xFF;
-
-        z2_txrx(NORMAL_SPEED, tx, sizeof(tx), rx, sizeof(rx));
-
-        for(try = 0; try < 4; ++try)
-        {
-                z2_txrx(NORMAL_SPEED, tx, sizeof(tx), rx, sizeof(rx));
-
-                if(rx[0] == 0xE2)
-                {
-                        checksum = 0;
-                        for(i = 0; i < 14; ++i)
-                                checksum += rx[i];
-
-                        if((rx[14] | (rx[15] << 8)) == checksum)
-                        {
-                                InterfaceVersion = rx[2];
-                                MaxPacketSize = (rx[4] << 8) | rx[3];
-                                printk("zephyr2: interface version %d, max packet size: %d\n", InterfaceVersion, MaxPacketSize);
-
-                                return true;
-                        }
-                }
-
-                InterfaceVersion = 0;
-                MaxPacketSize = 1000;
-                msleep(3);
-        }
-
-        printk("zephyr2: failed getting interface version!\n");
-
-        return false;
-}
-
-static bool loadConstructedFirmware(const u8* firmware, int len)
-{
-	int try;
-
-	for(try = 0; try < 5; ++try)
-	{
-
-		printk("zephyr2: uploading firmware\n");
-
-//                GotATN = 0;
-                z2_tx(FAST_SPEED, firmware, len);
-
-		udelay(300);
-
-		if(z2_shortAck() == 0x4BC1)
-                        return true;
-
-	}
-
-	return false;
-}
-
-static int loadProxCal(const u8* firmware, int len)
-{
-        u32 address = 0x400180;
-        const u8* data = firmware;
-        int left = (len + 3) & ~0x3;
-        int try;
-
-        while(left > 0)
-        {
-                int toUpload = left;
-                if(toUpload > (MAX_BUFFER_SIZE - 0x10))
-				{
-					printk("zephyr2: prox-cal too big for buffer.\n");
-                    toUpload = MAX_BUFFER_SIZE - 0x10;
-				}
-
-                OutputPacket[0] = 0x18;
-                OutputPacket[1] = 0xE1;
-
-                makeBootloaderDataPacket(OutputPacket + 2, address, data, toUpload, NULL);
-
-                for(try = 0; try < 5; ++try)
-                {
-                        printk("zephyr2: uploading prox calibration data packet\r\n");
-
-//                        GotATN = 0;
-                        z2_tx(FAST_SPEED, OutputPacket, toUpload + 0x10);
-			udelay(300);
-
-                        if(z2_shortAck() == 0x4BC1)
-                                break;
-                }
-
-                if(try == 5)
-                        return false;
-
-                address += toUpload;
-                data += toUpload;
-                left -= toUpload;
-        }
-
-        return true;
-}
-
-static int loadCal(const u8* firmware, int len)
-{
-        u32 address = 0x400200;
-        const u8* data = firmware;
-        int left = (len + 3) & ~0x3;
-        int try;
-
-        while(left > 0)
-        {
-                int toUpload = left;
-                if(toUpload > 0x3F0)
-                        toUpload = 0x3F0;
-
-                OutputPacket[0] = 0x18;
-                OutputPacket[1] = 0xE1;
-
-                makeBootloaderDataPacket(OutputPacket + 2, address, data, toUpload, NULL);
-
-                for(try = 0; try < 5; ++try)
-                {
-                        printk("zephyr2: uploading calibration data packet\r\n");
-
-//                        GotATN = 0;
-                        z2_tx(FAST_SPEED, OutputPacket, toUpload + 0x10);
-						udelay(300);
-
-                        if(z2_shortAck() == 0x4BC1)
-                                break;
-                }
-
-                if(try == 5)
-                        return false;
-
-                address += toUpload;
-                data += toUpload;
-                left -= toUpload;
-        }
-
-        return true;
-}
-
-static u32 z2_getCalibration(void)
-{
-	u8 tx[2];
-	u8 rx[2];
-
-	tx[0] = 0x1F;
-	tx[1] = 0x01;
-
-	printk("zephyr2: requesting calibration...\n");
-
-	//	GotATN = 0;
-	z2_txrx(NORMAL_SPEED, tx, sizeof(tx), rx, sizeof(rx));
-
-	msleep(65);
-
-	return z2_longAck();
-}
-
-static int z2_calibrate(void)
-{
-	u32 z2_version;
-
-	z2_version = readRegister(0x10008FFC);
-
-	printk("zephyr2: detected Zephyr2 version 0x%0X\n", z2_version);
-
-	if(z2_version != 0x5A020028 && z2_version != 0x5A02002A) // TODO: What the hell causes this to crash? ;_;
-	{
-		#define init_register(addr, a, b) if(!writeRegister(addr, (a), (b))) { \
-			printk("zephyr2: error initialising register " #addr "\n"); return false; }
-
-		printk("zephyr2: Initialising Registers...\n");
-		// -- BEGIN INITIALISING REGISTERS -- //
-		
-		init_register(0x10001C04, 0x16E4, 0x1FFF);
-		init_register(0x10001C08, 0x840000, 0xFF0000);
-		init_register(0x1000300C, 0x05, 0x85);
-		init_register(0x1000304C, 0x20, 0xFFFFFFFF);
-
-		// --- END INITIALISING REGISTERS --- //
-		printk("zephyr2: Initialised Registers\n");
-
-		#undef init_register
-	}
-
-	printk("zephyr2: calibration complete with 0x%x\n", z2_getCalibration());
-
-	return true;
-}
-
-static void sendExecutePacket(void)
-{
-        u8 tx[12];
-        u8 rx[12];
-
-        tx[0] = 0x1D;
-        tx[1] = 0x53;
-
-        tx[2] = 0x18;
-        tx[3] = 0x00;
-        tx[4] = 0x10;
-        tx[5] = 0x00;
-        tx[6] = 0x00;
-        tx[7] = 0x01;
-        tx[8] = 0x00;
-        tx[9] = 0x00;
-
-		z2_makeU16Sum(tx+2, 8);
-        z2_txrx(NORMAL_SPEED, tx, sizeof(tx), rx, sizeof(rx));
-
-        printk("zephyr2: execute packet sent\r\n");
-}
-
-static int makeBootloaderDataPacket(u8* output, u32 destAddress, const u8* data, int dataLen, int* cksumOut)
-{
-        u32 checksum;
-        int i;
-
-        // This seems to be middle-endian! I've never seen this before.
-
-        output[0] = 0x30;
-        output[1] = 0x01;
-		z2_makeU16(output+2, dataLen >> 2);
-		z2_makeU32(output+4, destAddress);
-		z2_makeU16Sum(output+2, 6);
-
-        for(i = 0; i < dataLen; i += 4)
-        {
-                output[10 + i + 0] = data[i + 1];
-                output[10 + i + 1] = data[i + 0];
-                output[10 + i + 2] = data[i + 3];
-                output[10 + i + 3] = data[i + 2];
-        }
-
-		checksum = z2_makeU32Sum(output+10, dataLen);
-
-        if(cksumOut)
-                *cksumOut = checksum;
-
-        return dataLen;
-}
-
-static void z2_irq_handler(struct work_struct* work)
-{
-	do
-	{
-		printk("zephyr2: Interrupt handled\n");
-	}
-	while(z2_readFrame());
-}
-DECLARE_WORK(z2_queue, &z2_irq_handler);
-
-static spinlock_t z2_irq_lock;
-static irqreturn_t z2_irq(int irq, void* pToken)
-{
-	unsigned long flags = 0;
-
-	printk("zephyr2: Interrupt comes in\n");
-
-	if(!FirmwareLoaded)
-		return IRQ_HANDLED;
-
-	if(!MultitouchIRQ)
-		MultitouchIRQ = irq;
-
-	spin_unlock_wait(&z2_irq_lock);
-	spin_lock_irqsave(&z2_irq_lock, flags);
-	
-	schedule_work(&z2_queue);
-
-	spin_unlock_irqrestore(&z2_irq_lock, flags);
-	printk("zephyr2: Interrupt queued\n");
-	return IRQ_HANDLED;
-}
-
-int multitouch_setup(const u8* constructedFirmware, int constructedFirmwareLen, const u8* prox_cal, int prox_cal_size, const u8* cal, int cal_size)
-{
-	int i;
-	int ret;
-	int err;
-	u8* reportBuffer;
-	int reportLen;
-
-	if(!prox_cal)
-	{
-			printk("zephyr2: could not find proximity calibration data\n");
-			return -1;
-	}
-
-	if(!cal)
-	{
-			printk("zephyr2: could not find calibration data\n");
-			return -1;
-	}
-
-	printk("zephyr2: Firmware at 0x%08x - 0x%08x\n",
-			(u32) constructedFirmware, (u32)(constructedFirmware + constructedFirmwareLen));
-
-	OutputPacket = (u8*) kmalloc(MAX_BUFFER_SIZE, GFP_KERNEL);
-	InputPacket = (u8*) kmalloc(MAX_BUFFER_SIZE, GFP_KERNEL);
-	GetInfoPacket = (u8*) kmalloc(MAX_BUFFER_SIZE, GFP_KERNEL);
-	GetResultPacket = (u8*) kmalloc(MAX_BUFFER_SIZE, GFP_KERNEL);
-
-	request_irq(MT_ATN_INTERRUPT + IPHONE_GPIO_IRQS, z2_irq, IRQF_TRIGGER_FALLING, "iphone-multitouch", (void*) 0);
-
-	// Power up the device (turn it off then on again. ;])
-	printk("zephyr2: Powering Up Multitouch!\n");
-	iphone_gpio_pin_output(MT_GPIO_POWER, 0);
-	msleep(200);
-
-	iphone_gpio_pin_output(MT_GPIO_POWER, 1);
-	msleep(15);
-
-	// Initialisation of ...?
-	iphone_gpio_pin_output(0x606, 0);
-	msleep(200);
-	iphone_gpio_pin_output(0x606, 1);
-	msleep(15);
-
-	// Send Firmware
-	printk("zephyr2: Sending Firmware...\n");
-	if(!loadConstructedFirmware(constructedFirmware, constructedFirmwareLen))
-	{
-                printk("zephyr2: could not load preconstructed firmware\n");
-                err = -1;
-        	kfree(InputPacket);
-	        kfree(OutputPacket);
-	        kfree(GetInfoPacket);
-	        kfree(GetResultPacket);
-	        return err;
-	}
-
-        printk("zephyr2: loaded %d byte preconstructed firmware\n", constructedFirmwareLen);
-
-        if(!loadProxCal(prox_cal, prox_cal_size))
-        {
-                printk("zephyr2: could not load proximity calibration data\n");
-                err = -1;
-	        kfree(InputPacket);
-	        kfree(OutputPacket);
-	        kfree(GetInfoPacket);
-	        kfree(GetResultPacket);
-	        return err;
-        }
-
-        printk("zephyr2: loaded %d byte proximity calibration data\n", prox_cal_size);
-
-        if(!loadCal(cal, cal_size))
-        {
-                printk("zephyr2: could not load calibration data\n");
-                err = -1;
-	        kfree(InputPacket);
-	        kfree(OutputPacket);
-	        kfree(GetInfoPacket);
-	        kfree(GetResultPacket);
-	        return err;
-        }
-
-
-        printk("zephyr2: loaded %d byte calibration data\n", cal_size);
-
-        if(!z2_calibrate())
-        {
-                err = -1;
-	        kfree(InputPacket);
-	        kfree(OutputPacket);
-	        kfree(GetInfoPacket);
-	        kfree(GetResultPacket);
-        	return err;
-        }
-
-        sendExecutePacket();
-
-        msleep(1);
-
-	printk("zephyr2: Determining interface version...\n");
+	printk("multitouch: Determining interface version...\n");
 	if(!determineInterfaceVersion())
 	{
-                err = -1;
-        	kfree(InputPacket);
-	        kfree(OutputPacket);
-	        kfree(GetInfoPacket);
-	        kfree(GetResultPacket);
-	        return err;
+		kfree(InputPacket);
+		kfree(OutputPacket);
+		kfree(GetInfoPacket);
+		kfree(GetResultPacket);
+		return -1;
 	}
 
-	reportBuffer = (u8*) kmalloc(MaxPacketSize, GFP_KERNEL);
+	{
+		u8 reportBuffer[MaxPacketSize];
+		int reportLen;
 
-        if(!getReport(MT_INFO_FAMILYID, reportBuffer, &reportLen))
-        {
-                printk("zephyr2: failed getting family id!\n");
-                err = -1;
-	        kfree(reportBuffer);
-	        kfree(InputPacket);
-	        kfree(OutputPacket);
-	        kfree(GetInfoPacket);
-        	kfree(GetResultPacket);
-	        return err;
-        }
+		if(!getReport(MT_INFO_FAMILYID, reportBuffer, &reportLen))
+		{
+			printk("multitouch: failed getting family id!\n");
+			kfree(InputPacket);
+			kfree(OutputPacket);
+			kfree(GetInfoPacket);
+			kfree(GetResultPacket);
+			return -1;
+		}
 
-	FamilyID = reportBuffer[0];
+		FamilyID = reportBuffer[0];
 
-        if(!getReport(MT_INFO_SENSORINFO, reportBuffer, &reportLen))
-        {
-                printk("zephyr2: failed getting sensor info!\r\n");
-                err = -1;
-	        kfree(reportBuffer);
-	        kfree(InputPacket);
-	        kfree(OutputPacket);
-	        kfree(GetInfoPacket);
-	        kfree(GetResultPacket);
-	        return err;
-        }
+		if(!getReport(MT_INFO_SENSORINFO, reportBuffer, &reportLen))
+		{
+			printk("multitouch: failed getting sensor info!\n");
+			kfree(InputPacket);
+			kfree(OutputPacket);
+			kfree(GetInfoPacket);
+			kfree(GetResultPacket);
+			return -1;
+		}
 
-	SensorColumns = reportBuffer[2];
-	SensorRows = reportBuffer[1];
-	BCDVersion = ((reportBuffer[3] & 0xFF) << 8) | (reportBuffer[4] & 0xFF);
-	Endianness = reportBuffer[0];
+		SensorColumns = reportBuffer[2];
+		SensorRows = reportBuffer[1];
+		BCDVersion = ((reportBuffer[3] & 0xFF) << 8) | (reportBuffer[4] & 0xFF);
+		Endianness = reportBuffer[0];
 
+		if(!getReport(MT_INFO_SENSORREGIONDESC, reportBuffer, &reportLen))
+		{
+			printk("multitouch: failed getting sensor region descriptor!\n");
+			kfree(InputPacket);
+			kfree(OutputPacket);
+			kfree(GetInfoPacket);
+			kfree(GetResultPacket);
+			return -1;
+		}
 
-        if(!getReport(MT_INFO_SENSORREGIONDESC, reportBuffer, &reportLen))
-        {
-                printk("zephyr2: failed getting sensor region descriptor!\r\n");
-                err = -1;
-	        kfree(reportBuffer);
-	        kfree(InputPacket);
-	        kfree(OutputPacket);
-	        kfree(GetInfoPacket);
-	        kfree(GetResultPacket);
-	        return err;
-        }
+		SensorRegionDescriptorLen = reportLen;
+		SensorRegionDescriptor = (u8*) kmalloc(reportLen, GFP_KERNEL);
+		memcpy(SensorRegionDescriptor, reportBuffer, reportLen);
 
+		if(!getReport(MT_INFO_SENSORREGIONPARAM, reportBuffer, &reportLen))
+		{
+			printk("multitouch: failed getting sensor region param!\n");
+			kfree(InputPacket);
+			kfree(OutputPacket);
+			kfree(GetInfoPacket);
+			kfree(GetResultPacket);
+			kfree(SensorRegionDescriptor);
+			return -1;
+		}
 
-	SensorRegionDescriptorLen = reportLen;
-	SensorRegionDescriptor = (u8*) kmalloc(reportLen, GFP_KERNEL);
-	memcpy(SensorRegionDescriptor, reportBuffer, reportLen);
+		SensorRegionParamLen = reportLen;
+		SensorRegionParam = (u8*) kmalloc(reportLen, GFP_KERNEL);
+		memcpy(SensorRegionParam, reportBuffer, reportLen);
 
-        if(!getReport(MT_INFO_SENSORREGIONPARAM, reportBuffer, &reportLen))
-        {
-                printk("zephyr2: failed getting sensor region param!\r\n");
-                err = -1;
-	        kfree(SensorRegionDescriptor);
-	        kfree(reportBuffer);
-	        kfree(InputPacket);
-	        kfree(OutputPacket);
-	        kfree(GetInfoPacket);
-	        kfree(GetResultPacket);
-	        return err;
-        }
+		if(!getReport(MT_INFO_SENSORDIM, reportBuffer, &reportLen))
+		{
+			printk("multitouch: failed getting sensor surface dimensions!\n");
+			kfree(InputPacket);
+			kfree(OutputPacket);
+			kfree(GetInfoPacket);
+			kfree(GetResultPacket);
+			kfree(SensorRegionDescriptor);
+			kfree(SensorRegionParam);
+			return -1;
+		}
 
-
-	SensorRegionParamLen = reportLen;
-	SensorRegionParam = (u8*) kmalloc(reportLen, GFP_KERNEL);
-	memcpy(SensorRegionParam, reportBuffer, reportLen);
-
-        if(!getReport(MT_INFO_SENSORDIM, reportBuffer, &reportLen))
-        {
-                printk("zephyr2: failed getting sensor surface dimensions!\r\n");
-                err = -1;
-	        kfree(SensorRegionParam);
-	        kfree(SensorRegionDescriptor);
-	        kfree(reportBuffer);
-	        kfree(InputPacket);
-	        kfree(OutputPacket);
-	        kfree(GetInfoPacket);
-	        kfree(GetResultPacket);
-	        return err;
-        }
-
-
-	SensorWidth = *((u32*)&reportBuffer[0]);
-	SensorHeight = *((u32*)&reportBuffer[4]);
+		SensorWidth = *((u32*)&reportBuffer[0]);
+		SensorHeight = *((u32*)&reportBuffer[4]);
+	}
 
 	printk("Family ID                : 0x%x\n", FamilyID);
 	printk("Sensor rows              : 0x%x\n", SensorRows);
@@ -1182,26 +309,16 @@ int multitouch_setup(const u8* constructedFirmware, int constructedFirmwareLen, 
 		printk(" %02x", SensorRegionParam[i]);
 	printk("\n");
 
-        if(BCDVersion > 0x23)
-                FlipNOP = true;
-        else
-                FlipNOP = false;
-
-        kfree(reportBuffer);
-
-
 	input_dev = input_allocate_device();
 	if(!input_dev)
 	{
-                err = -1;
-	        kfree(SensorRegionParam);
-	        kfree(SensorRegionDescriptor);
-	        kfree(reportBuffer);
-	        kfree(InputPacket);
-	        kfree(OutputPacket);
-	        kfree(GetInfoPacket);
-	        kfree(GetResultPacket);
-	        return err;
+		kfree(InputPacket);
+		kfree(OutputPacket);
+		kfree(GetInfoPacket);
+		kfree(GetResultPacket);
+		kfree(SensorRegionDescriptor);
+		kfree(SensorRegionParam);
+		return -1;
 	}
 
 
@@ -1229,80 +346,579 @@ int multitouch_setup(const u8* constructedFirmware, int constructedFirmwareLen, 
 	ret = input_register_device(input_dev);
 	if(ret != 0)
 	{
-                err = -1;
-        	kfree(SensorRegionParam);
-	        kfree(SensorRegionDescriptor);
-	        kfree(reportBuffer);
-	        kfree(InputPacket);
-	        kfree(OutputPacket);
-	        kfree(GetInfoPacket);
-	        kfree(GetResultPacket);
-	        return err;
+		kfree(InputPacket);
+		kfree(OutputPacket);
+		kfree(GetInfoPacket);
+		kfree(GetResultPacket);
+		kfree(SensorRegionDescriptor);
+		kfree(SensorRegionParam);
+		return -1;
 	}
 
-    CurNOP = 1;
-
-	spin_lock_init(&z2_irq_lock);
-	//spin_lock_init(&z2_readFrame_lock);
+	CurNOP = 0x64;
+	GotATN = 0;
+	spin_lock_init(&GotATNLock);
 
 	FirmwareLoaded = true;
 
 	return 0;
 }
 
-static void got_cal(const struct firmware* fw, void *context)
+static void multitouch_atn_handler(struct work_struct* work)
+{
+	unsigned long flags;
+
+	if(!FirmwareLoaded)
+		return;
+
+	spin_lock_irqsave(&GotATNLock, flags);
+	while(GotATN)
+	{
+		--GotATN;
+		spin_unlock_irqrestore(&GotATNLock, flags);
+		while(readFrame() == 1);
+		spin_lock_irqsave(&GotATNLock, flags);
+	}
+	spin_unlock_irqrestore(&GotATNLock, flags);
+}
+
+static void newPacket(const u8* data, int len)
+{
+	int i;
+	FingerData* finger;
+	MTFrameHeader* header = (MTFrameHeader*) data;
+	if(header->type != 0x44 && header->type != 0x43)
+		printk("multitouch: unknown frame type 0x%x\n", header->type);
+
+	finger = (FingerData*)(data + (header->headerLen));
+
+	if(header->headerLen < 12)
+		printk("multitouch: no finger data in frame\n");
+
+//	printk("------START------\n");
+
+	for(i = 0; i < header->numFingers; ++i)
+	{
+		input_report_abs(input_dev, ABS_MT_TOUCH_MAJOR, finger->force_major);
+		input_report_abs(input_dev, ABS_MT_TOUCH_MINOR, finger->force_minor);
+		input_report_abs(input_dev, ABS_MT_WIDTH_MAJOR, finger->size_major);
+		input_report_abs(input_dev, ABS_MT_WIDTH_MINOR, finger->size_minor);
+		input_report_abs(input_dev, ABS_MT_ORIENTATION, MAX_FINGER_ORIENTATION - finger->orientation);
+		input_report_abs(input_dev, ABS_MT_POSITION_X, finger->x);
+		input_report_abs(input_dev, ABS_MT_POSITION_Y, SensorHeight - finger->y);
+		input_report_abs(input_dev, ABS_MT_TRACKING_ID, finger->id);
+		input_mt_sync(input_dev);
+/*		printk("multitouch: finger %d -- id=%d, event=%d, X(%d/%d, vel: %d), Y(%d/%d, vel: %d), radii(%d, %d, %d, orientation: %d), force_minor: %d\n",
+				i, finger->id, finger->event,
+				finger->x, SensorWidth, finger->rel_x,
+				finger->y, SensorHeight, finger->rel_y,
+				finger->force_major, finger->size_major, finger->size_minor, finger->orientation,
+				finger->force_minor);
+
+		//framebuffer_draw_rect(0xFF0000, (finger->x * framebuffer_width()) / SensorWidth - 2 , ((SensorHeight - finger->y) * framebuffer_height()) / SensorHeight - 2, 4, 4);
+		//hexdump((u32) finger, sizeof(FingerData));*/
+		finger = (FingerData*) (((u8*) finger) + header->fingerDataLen);
+	}
+
+	if(header->numFingers > 0)
+	{
+		finger = (FingerData*)(data + (header->headerLen));
+
+		input_report_abs(input_dev, ABS_X, finger->x);
+		input_report_abs(input_dev, ABS_Y, SensorHeight - finger->y);
+		input_report_key(input_dev, BTN_TOUCH, finger->size_minor > 0);
+	}
+
+	input_sync(input_dev);
+
+//	printk("-------END-------\n");
+}
+
+static int readFrame()
+{
+	int try = 0;
+
+	for(try = 0; try < 4; ++try)
+	{
+		int len = 0;
+		if(!readFrameLength(&len))
+		{
+			printk("multitouch: error getting frame length\n");
+			msleep(1);
+			continue;
+		}
+
+		if(len)
+		{
+			if(!readResultData(len + 1))
+			{
+				printk("multitouch: error getting frame data\n");
+				msleep(1);
+				continue;
+			}
+
+			if(CurNOP == 0x64)
+				CurNOP = 0x65;
+			else
+				CurNOP = 0x64;
+
+			return 1;
+		}
+
+		return 0;
+	}
+
+	return -1;
+}
+
+static bool readResultData(int len)
+{
+	int try = 0;
+	for(try = 0; try < 4; ++try)
+	{
+		int checksum;
+		int myChecksum;
+		int i;
+
+		mt_spi_txrx(NORMAL_SPEED, GetResultPacket, len, InputPacket, len);
+
+		if(InputPacket[0] != 0xAA)
+		{
+			msleep(1);
+			continue;
+		}
+
+		checksum = ((InputPacket[len - 2] & 0xFF) << 8) | (InputPacket[len - 1] & 0xFF);
+		myChecksum = 0;
+
+		for(i = 1; i < (len - 2); ++i)
+			myChecksum += InputPacket[i];
+
+		myChecksum &= 0xFFFF;
+
+		if(myChecksum != checksum)
+		{
+			msleep(1);
+			continue;
+		}
+
+		newPacket(InputPacket + 1, len - 3);
+		return true;
+	}
+
+	return false;
+
+}
+
+static bool readFrameLength(int* len)
+{
+	int try;
+	u8 tx[8];
+	u8 rx[8];
+	memset(tx, CurNOP, sizeof(tx));
+
+	try = 0;
+	for(try = 0; try < 4; ++try)
+	{
+		int tLen;
+		int tLenCkSum;
+		int checksum;
+
+		mt_spi_txrx(NORMAL_SPEED, tx, sizeof(tx), rx, sizeof(rx));
+
+		if(rx[0] != 0xAA)
+		{
+			msleep(1);
+			continue;
+		}
+
+		tLen = ((rx[4] & 0xFF) << 8) | (rx[5] & 0xFF);
+		tLenCkSum = (rx[4] + rx[5]) & 0xFFFF;
+		checksum = ((rx[6] & 0xFF) << 8) | (rx[7] & 0xFF);
+		if(tLenCkSum != checksum)
+		{
+			msleep(1);
+			continue;
+		}
+
+		if(tLen > MaxPacketSize)
+		{
+			printk("multitouch: device unexpectedly requested to transfer a %d byte packet. Max size = %d\n", tLen, MaxPacketSize);
+			msleep(1);
+			continue;
+		}
+
+		*len = tLen;
+
+		return true;
+	}
+
+	return false;
+}
+
+static bool getReport(int id, u8* buffer, int* outLen)
+{
+	u8 err;
+	u16 len;
+	int try;
+	if(!getReportInfo(id, &err, &len))
+		return false;
+
+	if(err)
+		return false;
+
+	try = 0;
+	for(try = 0; try < 4; ++try)
+	{
+		int checksum;
+		int myChecksum;
+		int i;
+
+		GetInfoPacket[1] = id;
+		mt_spi_txrx(NORMAL_SPEED, GetInfoPacket, len + 6, InputPacket, len + 6);
+
+		if(InputPacket[0] != 0xAA)
+		{
+			msleep(1);
+			continue;
+		}
+
+		checksum = ((InputPacket[len + 4] & 0xFF) << 8) | (InputPacket[len + 5] & 0xFF);
+		myChecksum = id;
+
+		for(i = 0; i < len; ++i)
+			myChecksum += InputPacket[i + 4];
+
+		myChecksum &= 0xFFFF;
+
+		if(myChecksum != checksum)
+		{
+			msleep(1);
+			continue;
+		}
+
+		*outLen = len;
+		memcpy(buffer, &InputPacket[4], len);
+
+		return true;
+	}
+
+	return false;
+}
+
+static bool getReportInfo(int id, u8* err, u16* len)
+{
+	u8 tx[8];
+	u8 rx[8];
+
+	int try;
+	for(try = 0; try < 4; ++try)
+	{
+		int checksum;
+		int myChecksum;
+
+		memset(tx, 0x8F, 8);
+		tx[1] = id;
+
+		mt_spi_txrx(NORMAL_SPEED, tx, sizeof(tx), rx, sizeof(rx));
+
+		if(rx[0] != 0xAA)
+		{
+			msleep(1);
+			continue;
+		}
+
+		checksum = ((rx[6] & 0xFF) << 8) | (rx[7] & 0xFF);
+		myChecksum = (id + rx[4] + rx[5]) & 0xFFFF;
+
+		if(checksum != myChecksum)
+		{
+			msleep(1);
+			continue;
+		}
+
+		*err = (rx[4] >> 4) & 0xF;
+		*len = ((rx[4] & 0xF) << 8) | (rx[5] & 0xFF);
+
+		return true;
+	}
+
+	return false;
+}
+
+static bool determineInterfaceVersion()
+{
+	u8 tx[4];
+	u8 rx[4];
+
+	int try;
+	for(try = 0; try < 4; ++try)
+	{
+		memset(tx, 0xD0, 4);
+
+		mt_spi_txrx(NORMAL_SPEED, tx, sizeof(tx), rx, sizeof(rx));
+
+		if(rx[0] == 0xAA)
+		{
+			InterfaceVersion = rx[1];
+			MaxPacketSize = (rx[2] << 8) | rx[3];
+
+			printk("multitouch: interface version %d, max packet size: %d\n", InterfaceVersion, MaxPacketSize);
+			return true;
+		}
+
+		InterfaceVersion = 0;
+		MaxPacketSize = 1000;
+		msleep(3);
+	}
+
+	printk("multitouch: failed getting interface version!\n");
+
+	return false;
+}
+
+static bool loadASpeedFirmware(const u8* firmware, int len)
+{
+	u32 address = 0x40000000;
+	const u8* data = firmware;
+	int left = len;
+
+	while(left > 0)
+	{
+		int checksum;
+		int try;
+		int toUpload = left;
+		if(toUpload > 0x3F8)
+			toUpload = 0x3F8;
+
+		makeBootloaderDataPacket(OutputPacket, address, data, toUpload, &checksum);
+
+		for(try = 0; try < 5; ++try)
+		{
+			printk("multitouch: uploading data packet\n");
+			mt_spi_tx(NORMAL_SPEED, OutputPacket, 0x400);
+
+			udelay(300);
+
+			if(verifyUpload(checksum))
+				break;
+		}
+
+		if(try == 5)
+			return false;
+
+		address += toUpload;
+		data += toUpload;
+		left -= toUpload;
+	}
+
+	sendExecutePacket();
+
+	return true;
+}
+
+static bool loadMainFirmware(const u8* firmware, int len)
+{
+	int checksum = 0;
+
+	int i;
+	for(i = 0; i < len; ++i)
+		checksum += firmware[i];
+
+	for(i = 0; i < 5; ++i)
+	{
+		sendBlankDataPacket();
+
+		printk("multitouch: uploading main firmware\n");
+		mt_spi_tx(FAST_SPEED, firmware, len);
+
+		if(verifyUpload(checksum))
+			break;
+	}
+
+	if(i == 5)
+		return false;
+
+	sendExecutePacket();
+
+	return true;
+}
+
+static bool verifyUpload(int checksum)
+{
+	u8 tx[4];
+	u8 rx[4];
+
+	tx[0] = 5;
+	tx[1] = 0;
+	tx[2] = 0;
+	tx[3] = 6;
+
+	mt_spi_txrx(NORMAL_SPEED, tx, sizeof(tx), rx, sizeof(rx));
+
+	if(rx[0] != 0xD0 || rx[1] != 0x0)
+	{
+		printk("multitouch: data verification failed type bytes, got %02x %02x %02x %02x -- %x\n", rx[0], rx[1], rx[2], rx[3], checksum);
+		return false;
+	}
+
+	if(rx[2] != ((checksum >> 8) & 0xFF))
+	{
+		printk("multitouch: data verification failed upper checksum, %02x != %02x\n", rx[2], (checksum >> 8) & 0xFF);
+		return false;
+	}
+
+	if(rx[3] != (checksum & 0xFF))
+	{
+		printk("multitouch: data verification failed lower checksum, %02x != %02x\n", rx[3], checksum & 0xFF);
+		return false;
+	}
+
+	printk("multitouch: data verification successful\n");
+	return true;
+}
+
+
+static void sendExecutePacket(void)
+{
+	u8 tx[4];
+	u8 rx[4];
+
+	tx[0] = 0xC4;
+	tx[1] = 0;
+	tx[2] = 0;
+	tx[3] = 0xC4;
+
+	mt_spi_txrx(NORMAL_SPEED, tx, sizeof(tx), rx, sizeof(rx));
+
+	printk("multitouch: execute packet sent\n");
+}
+
+static void sendBlankDataPacket(void)
+{
+	u8 tx[4];
+	u8 rx[4];
+
+	tx[0] = 0xC2;
+	tx[1] = 0;
+	tx[2] = 0;
+	tx[3] = 0;
+
+	mt_spi_txrx(NORMAL_SPEED, tx, sizeof(tx), rx, sizeof(rx));
+
+	printk("multitouch: blank data packet sent\n");
+}
+
+static int makeBootloaderDataPacket(u8* output, u32 destAddress, const u8* data, int dataLen, int* cksumOut)
+{
+	int checksum;
+	int i;
+
+	if(dataLen > 0x3F8)
+		dataLen = 0x3F8;
+
+	output[0] = 0xC2;
+	output[1] = (destAddress >> 24) & 0xFF;
+	output[2] = (destAddress >> 16) & 0xFF;
+	output[3] = (destAddress >> 8) & 0xFF;
+	output[4] = destAddress & 0xFF;
+	output[5] = 0;
+
+	checksum = 0;
+
+	for(i = 0; i < dataLen; ++i)
+	{
+		u8 byte = data[i];
+		checksum += byte;
+		output[6 + i] = byte;
+	}
+
+	for(i = 0; i < 6; ++i)
+	{
+		checksum += output[i];
+	}
+
+	memset(output + dataLen + 6, 0, 0x3F8 - dataLen);
+	output[0x3FE] = (checksum >> 8) & 0xFF;
+	output[0x3FF] = checksum & 0xFF;
+
+	*cksumOut = checksum;
+
+	return dataLen;
+}
+
+static irqreturn_t multitouch_atn(int irq, void* pToken)
+{
+	unsigned long flags;
+
+	if(!FirmwareLoaded)
+		return IRQ_HANDLED;
+
+	spin_lock_irqsave(&GotATNLock, flags);
+	++GotATN;
+	spin_unlock_irqrestore(&GotATNLock, flags);
+
+	schedule_work(&multitouch_workqueue);
+	return IRQ_HANDLED;
+}
+
+
+int mt_spi_tx(const MTSPISetting* setting, const u8* outBuffer, int outLen)
+{
+	int ret;
+	iphone_spi_set_baud(MT_SPI, setting->speed, SPIOption13Setting0, 1, 1, 1);
+	iphone_gpio_pin_output(MT_SPI_CS, 0);
+	msleep(setting->txDelay);
+	ret = iphone_spi_tx(MT_SPI, outBuffer, outLen, true, false);
+	iphone_gpio_pin_output(MT_SPI_CS, 1);
+	return ret;
+}
+
+int mt_spi_txrx(const MTSPISetting* setting, const u8* outBuffer, int outLen, u8* inBuffer, int inLen)
+{
+	int ret;
+	iphone_spi_set_baud(MT_SPI, setting->speed, SPIOption13Setting0, 1, 1, 1);
+	iphone_gpio_pin_output(MT_SPI_CS, 0);
+	msleep(setting->rxDelay);
+	ret = iphone_spi_txrx(MT_SPI, outBuffer, outLen, inBuffer, inLen, true);
+	iphone_gpio_pin_output(MT_SPI_CS, 1);
+	return ret;
+}
+
+static void got_main(const struct firmware* fw, void *context)
 {
 	if(!fw)
 	{
-		printk("zephyr2: couldn't get cal, trying again...\n");
-		request_firmware_nowait(THIS_MODULE, FW_ACTION_HOTPLUG, "zephyr2_cal.bin", multitouch_dev, NULL, got_cal);
+		printk("multitouch: couldn't get main firmware, trying again...\n");
+		request_firmware_nowait(THIS_MODULE, FW_ACTION_HOTPLUG, "zephyr_main.bin", multitouch_dev, NULL, got_main);
 		return;
 	}
 
-	cal_fw = kmalloc(fw->size, GFP_KERNEL);
-	cal_fw_size = fw->size;
-	memcpy(cal_fw, fw->data, fw->size);
+	main_fw = kmalloc(fw->size, GFP_KERNEL);
+	main_fw_size = fw->size;
+	memcpy(main_fw, fw->data, fw->size);
 
-	printk("zephyr2: initializing multitouch\n");
-	multitouch_setup(constructed_fw, constructed_fw_size, proxcal_fw, proxcal_fw_size, cal_fw, cal_fw_size);
+	printk("multitouch: initializing multitouch\n");
+	multitouch_setup(aspeed_fw, aspeed_fw_size, main_fw, main_fw_size);
 
 	/* caller will call release_firmware */
 }
 
-static void got_proxcal(const struct firmware* fw, void *context)
+static void got_aspeed(const struct firmware* fw, void *context)
 {
 	if(!fw)
 	{
-		printk("zephyr2: couldn't get proxcal, trying again...\n");
-		request_firmware_nowait(THIS_MODULE, FW_ACTION_HOTPLUG, "zephyr2_proxcal.bin", multitouch_dev, NULL, got_proxcal);
+		printk("multitouch: couldn't get a-speed firmware, trying again...\n");
+		request_firmware_nowait(THIS_MODULE, FW_ACTION_HOTPLUG, "zephyr_aspeed.bin", multitouch_dev, NULL, got_aspeed);
 		return;
 	}
 
-	proxcal_fw = kmalloc(fw->size, GFP_KERNEL);
-	proxcal_fw_size = fw->size;
-	memcpy(proxcal_fw, fw->data, fw->size);
+	aspeed_fw = kmalloc(fw->size, GFP_KERNEL);
+	aspeed_fw_size = fw->size;
+	memcpy(aspeed_fw, fw->data, fw->size);
 
-	printk("zephyr2: requesting cal\n");
-	request_firmware_nowait(THIS_MODULE, FW_ACTION_HOTPLUG, "zephyr2_cal.bin", multitouch_dev, NULL, got_cal);
-
-	/* caller will call release_firmware */
-}
-
-static void got_constructed(const struct firmware* fw, void *context)
-{
-	if(!fw)
-	{
-		printk("zephyr2: couldn't get firmware, trying again...\n");
-		request_firmware_nowait(THIS_MODULE, FW_ACTION_HOTPLUG, "zephyr2.bin", multitouch_dev, NULL, got_constructed);
-		return;
-	}
-
-	constructed_fw = kmalloc(fw->size, GFP_KERNEL);
-	constructed_fw_size = fw->size;
-	memcpy(constructed_fw, fw->data, fw->size);
-
-	printk("zephyr2: requesting proxcal\n");
-	request_firmware_nowait(THIS_MODULE, FW_ACTION_HOTPLUG, "zephyr2_proxcal.bin", multitouch_dev, NULL, got_proxcal);
+	printk("multitouch: requesting main firmware\n");
+	request_firmware_nowait(THIS_MODULE, FW_ACTION_HOTPLUG, "zephyr_main.bin", multitouch_dev, NULL, got_main);
 
 	/* caller will call release_firmware */
 }
@@ -1315,8 +931,8 @@ static int iphone_multitouch_probe(struct platform_device *pdev)
 
 	multitouch_dev = &pdev->dev;
 
-	printk("zephyr2: requesting Firmware\n");
-	return request_firmware_nowait(THIS_MODULE, FW_ACTION_HOTPLUG, "zephyr2.bin", multitouch_dev, NULL, got_constructed);
+	printk("multitouch: requesting A-Speed firmware\n");
+	return request_firmware_nowait(THIS_MODULE, FW_ACTION_HOTPLUG, "zephyr_aspeed.bin", multitouch_dev, NULL, got_aspeed);
 }
 
 static int iphone_multitouch_remove(struct platform_device *pdev)
@@ -1365,6 +981,6 @@ static void __exit iphone_multitouch_exit(void)
 module_init(iphone_multitouch_init);
 module_exit(iphone_multitouch_exit);
 
-MODULE_DESCRIPTION("iPhone Zephyr 2 Multitouch Driver");
+MODULE_DESCRIPTION("iPhone Zephyr multitouch driver");
 MODULE_AUTHOR("Yiduo Wang");
 MODULE_LICENSE("GPL");
