@@ -7,7 +7,7 @@
 #include <mach/iphone-spi.h>
 #include <mach/gpio.h>
 
-#ifdef CONFIG_IPHONE
+#ifdef CONFIG_IPHONE_2G
 #define MT_GPIO_POWER 0x804
 #define MT_ATN_INTERRUPT 0xa3
 #else
@@ -15,7 +15,7 @@
 #define MT_ATN_INTERRUPT 0x9b
 #endif
 
-#ifdef CONFIG_3G
+#ifdef CONFIG_IPHONE_3G
 #define MT_SPI 1
 #define MT_SPI_CS GPIO_SPI1_CS0
 #else
