@@ -7,7 +7,7 @@
 #include <mach/iphone-spi.h>
 #include <mach/gpio.h>
 
-#ifdef CONFIG_IPHONE
+#ifdef CONFIG_IPHONE_2G
 #	define MT_GPIO_POWER 0x804
 #	define MT_ATN_INTERRUPT 0xa3
 #	define MT_SPI 2
@@ -105,17 +105,16 @@ static int SensorRegionParamLen;
 static int CurNOP;
 
 static bool FirmwareLoaded = false;
-static bool z2_readFrame_semaphore = false;
-static int z2_irq_count = 0;
+static int z2_atn_count = 0;
 
 static struct device* multitouch_dev = NULL;
 static struct input_dev* input_dev;
 
 static u8* constructed_fw;
 static size_t constructed_fw_size;
-static u8* proxcal_fw;
+static u8 proxcal_fw[512];
 static size_t proxcal_fw_size;
-static u8* cal_fw;
+static u8 cal_fw[512];
 static size_t cal_fw_size;
 
 static int makeBootloaderDataPacket(u8* output, u32 destAddress, const u8* data, int dataLen, int* cksumOut);
@@ -321,7 +320,7 @@ static void newPacket(const u8* data, int len)
 	if(header->headerLen < 12)
 		printk("zephyr2: no finger data in frame\n");
 
-//	printk("------START------\n");
+	//	printk("------START------\n");
 
 	for(i = 0; i < header->numFingers; ++i)
 	{
@@ -334,7 +333,7 @@ static void newPacket(const u8* data, int len)
 		input_report_abs(input_dev, ABS_MT_POSITION_Y, SensorHeight - finger->y);
 		input_report_abs(input_dev, ABS_MT_TRACKING_ID, finger->id);
 		input_mt_sync(input_dev);
-/*		printk("zephyr2: finger %d -- id=%d, event=%d, X(%d/%d, vel: %d), Y(%d/%d, vel: %d), radii(%d, %d, %d, orientation: %d), force_minor: %d\n",
+		/*printk("zephyr2: finger %d -- id=%d, event=%d, X(%d/%d, vel: %d), Y(%d/%d, vel: %d), radii(%d, %d, %d, orientation: %d), force_minor: %d\n",
 				i, finger->id, finger->event,
 				finger->x, SensorWidth, finger->rel_x,
 				finger->y, SensorHeight, finger->rel_y,
@@ -357,147 +356,140 @@ static void newPacket(const u8* data, int len)
 
 	input_sync(input_dev);
 
-//	printk("-------END-------\n");
+	//	printk("-------END-------\n");
 }
 
 static bool readResultData(int len)
 {
-        u32 checksum;
-        int i;
-        int packetLen;
+	u32 checksum;
+	int i;
+	int packetLen;
 
-        if(len > MAX_BUFFER_SIZE)
-		{
-			printk("zephyr2: Result too big for buffer! We have %d bytes, we need %d bytes!\n", MAX_BUFFER_SIZE, len);
-            len = MAX_BUFFER_SIZE;
-		}
+	if(len > MAX_BUFFER_SIZE)
+	{
+		printk("zephyr2: Result too big for buffer! We have %d bytes, we need %d bytes!\n", MAX_BUFFER_SIZE, len);
+		len = MAX_BUFFER_SIZE;
+	}
 
-        memset(GetResultPacket, 0, MAX_BUFFER_SIZE);
+	memset(GetResultPacket, 0, MAX_BUFFER_SIZE);
 
-        if(FlipNOP)
-                GetResultPacket[0] = 0xEB;
-        else
-                GetResultPacket[0] = 0xEA;
+	if(FlipNOP)
+		GetResultPacket[0] = 0xEB;
+	else
+		GetResultPacket[0] = 0xEA;
 
-        GetResultPacket[1] = CurNOP;
-        GetResultPacket[2] = 1;
+	GetResultPacket[1] = CurNOP;
+	GetResultPacket[2] = 1;
 
-        checksum = 0;
-        for(i = 0; i < 14; ++i)
-                checksum += GetResultPacket[i];
+	checksum = 0;
+	for(i = 0; i < 14; ++i)
+		checksum += GetResultPacket[i];
 
-        GetResultPacket[len - 2] = checksum & 0xFF;
-        GetResultPacket[len - 1] = (checksum >> 8) & 0xFF;
+	GetResultPacket[len - 2] = checksum & 0xFF;
+	GetResultPacket[len - 1] = (checksum >> 8) & 0xFF;
 
-        z2_txrx(NORMAL_SPEED, GetResultPacket, len, InputPacket, len);
+	z2_txrx(NORMAL_SPEED, GetResultPacket, len, InputPacket, len);
 
-        if(InputPacket[0] != 0xEA && !(FlipNOP && InputPacket[0] == 0xEB))
-        {
-                printk("zephyr2: frame header wrong: got 0x%02X\n", InputPacket[0]);
-                msleep(1);
-                return false;
-        }
+	if(InputPacket[0] != 0xEA && !(FlipNOP && InputPacket[0] == 0xEB))
+	{
+		printk("zephyr2: frame header wrong: got 0x%02X\n", InputPacket[0]);
+		msleep(1);
+		return false;
+	}
 
-        checksum = 0;
-        for(i = 0; i < 5; ++i)
-                checksum += InputPacket[i];
+	checksum = 0;
+	for(i = 0; i < 5; ++i)
+		checksum += InputPacket[i];
 
-        if((checksum & 0xFF) != 0)
-        {
-                printk("zephyr2: LSB of first five bytes of frame not zero: got 0x%02X\n", checksum);
-                msleep(1);
-                return false;
-        }
+	if((checksum & 0xFF) != 0)
+	{
+		printk("zephyr2: LSB of first five bytes of frame not zero: got 0x%02X\n", checksum);
+		msleep(1);
+		return false;
+	}
 
-        packetLen = (InputPacket[2] & 0xFF) | ((InputPacket[3] & 0xFF) << 8);
+	packetLen = (InputPacket[2] & 0xFF) | ((InputPacket[3] & 0xFF) << 8);
 
-        if(packetLen <= 2)
-                return true;
+	if(packetLen <= 2)
+		return true;
 
-        checksum = 0;
-        for(i = 5; i < (5 + packetLen - 2); ++i)
-                checksum += InputPacket[i];
-        if((InputPacket[len - 2] | (InputPacket[len - 1] << 8)) != checksum)
-        {
-                printk("zephyr2: packet checksum wrong 0x%02X instead of 0x%02X\n", checksum, (InputPacket[len - 2] | (InputPacket[len - 1] << 8)));
-                msleep(1);
-                return false;
-        }
+	checksum = 0;
+	for(i = 5; i < (5 + packetLen - 2); ++i)
+		checksum += InputPacket[i];
+	if((InputPacket[len - 2] | (InputPacket[len - 1] << 8)) != checksum)
+	{
+		printk("zephyr2: packet checksum wrong 0x%02X instead of 0x%02X\n", checksum, (InputPacket[len - 2] | (InputPacket[len - 1] << 8)));
+		msleep(1);
+		return false;
+	}
 
-        newPacket(InputPacket + 5, packetLen - 2);
-        return true;
+	newPacket(InputPacket + 5, packetLen - 2);
+	return true;
 }
 
 static bool z2_readFrameLength(int* len)
 {
-        u8 tx[16];
-        u8 rx[16];
-        u32 checksum;
+	u8 tx[16];
+	u8 rx[16];
+	u32 checksum;
 
-        memset(tx, 0, sizeof(tx));
+	memset(tx, 0, sizeof(tx));
 
-        if(FlipNOP)
-                tx[0] = 0xEB;
-        else
-                tx[0] = 0xEA;
+	if(FlipNOP)
+		tx[0] = 0xEB;
+	else
+		tx[0] = 0xEA;
 
-        tx[1] = CurNOP;
-        tx[2] = 0;
+	tx[1] = CurNOP;
+	tx[2] = 0;
 
-		z2_makeU16SumR(tx, 14);
+	z2_makeU16SumR(tx, 14);
 
-        z2_txrx(NORMAL_SPEED, tx, sizeof(tx), rx, sizeof(rx));
+	z2_txrx(NORMAL_SPEED, tx, sizeof(tx), rx, sizeof(rx));
 
-        checksum = z2_u16Sum(rx, 14);
-        if((rx[14] | (rx[15] << 8)) != checksum)
-        {
-                udelay(1000);
-                return false;
-        }
+	checksum = z2_u16Sum(rx, 14);
+	if((rx[14] | (rx[15] << 8)) != checksum)
+	{
+		udelay(1000);
+		return false;
+	}
 
-        *len = (rx[1] & 0xFF) | ((rx[2] & 0xFF) << 8);
+	*len = (rx[1] & 0xFF) | ((rx[2] & 0xFF) << 8);
 
-        return true;
+	return true;
 }
 
 static int z2_readFrame(void)
 {
-    int ret = 0;
-    int len = 0;
-
-	if(z2_readFrame_semaphore)
-		return -1;
-
-	z2_readFrame_semaphore = true;
+	int ret = 0;
+	int len = 0;
 
 	if(!z2_readFrameLength(&len))
 	{
-			printk("zephyr2: error getting frame length\r\n");
-			len = 0;
-			ret = -1;
+		printk("zephyr2: error getting frame length\r\n");
+		len = 0;
+		ret = -1;
 	}
 
 	if(len)
 	{
-			if(!readResultData(len + 5))
-			{
-					printk("zephyr2: error getting frame data\r\n");
-					msleep(1);
-					ret = -1;
-			}
+		if(!readResultData(len + 5))
+		{
+			printk("zephyr2: error getting frame data\r\n");
+			msleep(1);
+			ret = -1;
+		}
 
-			ret = 1;
+		ret = 1;
 	}
 
 	if(FlipNOP)
 	{
-			if(CurNOP == 1)
-					CurNOP = 2;
-			else
-					CurNOP = 1;
+		if(CurNOP == 1)
+			CurNOP = 2;
+		else
+			CurNOP = 1;
 	}
-
-	z2_readFrame_semaphore = false;
 
 	return ret;
 }
@@ -505,214 +497,214 @@ static int z2_readFrame(void)
 
 static int shortControlRead(int id, u8* buffer, int size)
 {
-        u32 checksum;
-        int i;
+	u32 checksum;
+	int i;
 
-        memset(GetInfoPacket, 0, MAX_BUFFER_SIZE);
-        GetInfoPacket[0] = 0xE6;
-        GetInfoPacket[1] = id;
-        GetInfoPacket[2] = 0;
-        GetInfoPacket[3] = size & 0xFF;
-        GetInfoPacket[4] = (size >> 8) & 0xFF;
+	memset(GetInfoPacket, 0, MAX_BUFFER_SIZE);
+	GetInfoPacket[0] = 0xE6;
+	GetInfoPacket[1] = id;
+	GetInfoPacket[2] = 0;
+	GetInfoPacket[3] = size & 0xFF;
+	GetInfoPacket[4] = (size >> 8) & 0xFF;
 
-        checksum = 0;
-        for(i = 0; i < 5; ++i)
-                checksum += GetInfoPacket[i];
+	checksum = 0;
+	for(i = 0; i < 5; ++i)
+		checksum += GetInfoPacket[i];
 
-        GetInfoPacket[14] = checksum & 0xFF;
-        GetInfoPacket[15] = (checksum >> 8) & 0xFF;
+	GetInfoPacket[14] = checksum & 0xFF;
+	GetInfoPacket[15] = (checksum >> 8) & 0xFF;
 
-        z2_txrx(NORMAL_SPEED, GetInfoPacket, 16, InputPacket, 16);
+	z2_txrx(NORMAL_SPEED, GetInfoPacket, 16, InputPacket, 16);
 
-        udelay(25);
+	udelay(25);
 
-        GetInfoPacket[2] = 1;
+	GetInfoPacket[2] = 1;
 
-        z2_txrx(NORMAL_SPEED, GetInfoPacket, 16, InputPacket, 16);
+	z2_txrx(NORMAL_SPEED, GetInfoPacket, 16, InputPacket, 16);
 
-        checksum = 0;
-        for(i = 0; i < 14; ++i)
-                checksum += InputPacket[i];
+	checksum = 0;
+	for(i = 0; i < 14; ++i)
+		checksum += InputPacket[i];
 
-        if((InputPacket[14] | (InputPacket[15] << 8)) != checksum)
-                return false;
+	if((InputPacket[14] | (InputPacket[15] << 8)) != checksum)
+		return false;
 
-        memcpy(buffer, &InputPacket[3], size);
+	memcpy(buffer, &InputPacket[3], size);
 
-        return true;
+	return true;
 }
 
 static int longControlRead(int id, u8* buffer, int size)
 {
-        u32 checksum;
-        int i;
+	u32 checksum;
+	int i;
 
-        memset(GetInfoPacket, 0, 0x200);
-        GetInfoPacket[0] = 0xE7;
-        GetInfoPacket[1] = id;
-        GetInfoPacket[2] = 0;
-        GetInfoPacket[3] = size & 0xFF;
-        GetInfoPacket[4] = (size >> 8) & 0xFF;
+	memset(GetInfoPacket, 0, 0x200);
+	GetInfoPacket[0] = 0xE7;
+	GetInfoPacket[1] = id;
+	GetInfoPacket[2] = 0;
+	GetInfoPacket[3] = size & 0xFF;
+	GetInfoPacket[4] = (size >> 8) & 0xFF;
 
-        checksum = 0;
-        for(i = 0; i < 5; ++i)
-                checksum += GetInfoPacket[i];
+	checksum = 0;
+	for(i = 0; i < 5; ++i)
+		checksum += GetInfoPacket[i];
 
-        GetInfoPacket[14] = checksum & 0xFF;
-        GetInfoPacket[15] = (checksum >> 8) & 0xFF;
+	GetInfoPacket[14] = checksum & 0xFF;
+	GetInfoPacket[15] = (checksum >> 8) & 0xFF;
 
-        z2_txrx(NORMAL_SPEED, GetInfoPacket, 16, InputPacket, 16);
+	z2_txrx(NORMAL_SPEED, GetInfoPacket, 16, InputPacket, 16);
 
-        udelay(25);
+	udelay(25);
 
-        GetInfoPacket[2] = 1;
-        GetInfoPacket[14] = 0;
-        GetInfoPacket[15] = 0;
-        GetInfoPacket[3 + size] = checksum & 0xFF;
-        GetInfoPacket[3 + size + 1] = (checksum >> 8) & 0xFF;
+	GetInfoPacket[2] = 1;
+	GetInfoPacket[14] = 0;
+	GetInfoPacket[15] = 0;
+	GetInfoPacket[3 + size] = checksum & 0xFF;
+	GetInfoPacket[3 + size + 1] = (checksum >> 8) & 0xFF;
 
-        z2_txrx(NORMAL_SPEED, GetInfoPacket, size + 5, InputPacket, size + 5);
+	z2_txrx(NORMAL_SPEED, GetInfoPacket, size + 5, InputPacket, size + 5);
 
-        checksum = 0;
-        for(i = 0; i < (size + 3); ++i)
-                checksum += InputPacket[i];
+	checksum = 0;
+	for(i = 0; i < (size + 3); ++i)
+		checksum += InputPacket[i];
 
-        if((InputPacket[3 + size] | (InputPacket[3 + size + 1] << 8)) != checksum)
-                return false;
+	if((InputPacket[3 + size] | (InputPacket[3 + size + 1] << 8)) != checksum)
+		return false;
 
-        memcpy(buffer, &InputPacket[3], size);
+	memcpy(buffer, &InputPacket[3], size);
 
-        return true;
+	return true;
 }
 
 static bool getReportInfo(int id, u8* err, u16* len)
 {
-        u8 tx[16];
-        u8 rx[16];
-        u32 checksum;
-        int i;
-        int try;
+	u8 tx[16];
+	u8 rx[16];
+	u32 checksum;
+	int i;
+	int try;
 
-        for(try = 0; try < 4; ++try)
-        {
-                memset(tx, 0, sizeof(tx));
+	for(try = 0; try < 4; ++try)
+	{
+		memset(tx, 0, sizeof(tx));
 
-                tx[0] = 0xE3;
-                tx[1] = id;
+		tx[0] = 0xE3;
+		tx[1] = id;
 
-                checksum = 0;
-                for(i = 0; i < 14; ++i)
-                        checksum += tx[i];
+		checksum = 0;
+		for(i = 0; i < 14; ++i)
+			checksum += tx[i];
 
-                tx[14] = checksum & 0xFF;
-                tx[15] = (checksum >> 8) & 0xFF;
+		tx[14] = checksum & 0xFF;
+		tx[15] = (checksum >> 8) & 0xFF;
 
-                z2_txrx(NORMAL_SPEED, tx, sizeof(tx), rx, sizeof(rx));
+		z2_txrx(NORMAL_SPEED, tx, sizeof(tx), rx, sizeof(rx));
 
-                udelay(25);
+		udelay(25);
 
-                z2_txrx(NORMAL_SPEED, tx, sizeof(tx), rx, sizeof(rx));
+		z2_txrx(NORMAL_SPEED, tx, sizeof(tx), rx, sizeof(rx));
 
-                if(rx[0] != 0xE3)
-                        continue;
+		if(rx[0] != 0xE3)
+			continue;
 
-                checksum = 0;
-                for(i = 0; i < 14; ++i)
-                        checksum += rx[i];
+		checksum = 0;
+		for(i = 0; i < 14; ++i)
+			checksum += rx[i];
 
-                if((rx[14] | (rx[15] << 8)) != checksum)
-                        continue;
+		if((rx[14] | (rx[15] << 8)) != checksum)
+			continue;
 
-                *err = rx[2];
-                *len = (rx[4] << 8) | rx[3];
+		*err = rx[2];
+		*len = (rx[4] << 8) | rx[3];
 
-                return true;
-        }
+		return true;
+	}
 
-        return false;
+	return false;
 }
 
 static bool getReport(int id, u8* buffer, int* outLen)
 {
-        u8 err;
-        u16 len;
-        int try;
+	u8 err;
+	u16 len;
+	int try;
 
-        if(!getReportInfo(id, &err, &len))
-                return false;
+	if(!getReportInfo(id, &err, &len))
+		return false;
 
-        if(err)
-                return false;
+	if(err)
+		return false;
 
-        *outLen = len;
+	*outLen = len;
 
-        for(try = 0; try < 4; ++try)
-        {
-                if(len < 12)
-                {
-                        if(shortControlRead(id, buffer, len))
-                                return true;
-                } else
-                {
-                        if(longControlRead(id, buffer, len))
-                                return true;
-                }
-        }
+	for(try = 0; try < 4; ++try)
+	{
+		if(len < 12)
+		{
+			if(shortControlRead(id, buffer, len))
+				return true;
+		} else
+		{
+			if(longControlRead(id, buffer, len))
+				return true;
+		}
+	}
 
-        return false;
+	return false;
 }
 
 static bool determineInterfaceVersion(void)
 {
-        u8 tx[16];
-        u8 rx[16];
-        u32 checksum;
-        int i;
-        int try;
+	u8 tx[16];
+	u8 rx[16];
+	u32 checksum;
+	int i;
+	int try;
 
-        memset(tx, 0, sizeof(tx));
+	memset(tx, 0, sizeof(tx));
 
-        tx[0] = 0xE2;
+	tx[0] = 0xE2;
 
-        checksum = 0;
-        for(i = 0; i < 14; ++i)
-                checksum += tx[i];
+	checksum = 0;
+	for(i = 0; i < 14; ++i)
+		checksum += tx[i];
 
-        // Note that the byte order changes to little-endian after main firmware load
+	// Note that the byte order changes to little-endian after main firmware load
 
-        tx[14] = checksum & 0xFF;
-        tx[15] = (checksum >> 8) & 0xFF;
+	tx[14] = checksum & 0xFF;
+	tx[15] = (checksum >> 8) & 0xFF;
 
-        z2_txrx(NORMAL_SPEED, tx, sizeof(tx), rx, sizeof(rx));
+	z2_txrx(NORMAL_SPEED, tx, sizeof(tx), rx, sizeof(rx));
 
-        for(try = 0; try < 4; ++try)
-        {
-                z2_txrx(NORMAL_SPEED, tx, sizeof(tx), rx, sizeof(rx));
+	for(try = 0; try < 4; ++try)
+	{
+		z2_txrx(NORMAL_SPEED, tx, sizeof(tx), rx, sizeof(rx));
 
-                if(rx[0] == 0xE2)
-                {
-                        checksum = 0;
-                        for(i = 0; i < 14; ++i)
-                                checksum += rx[i];
+		if(rx[0] == 0xE2)
+		{
+			checksum = 0;
+			for(i = 0; i < 14; ++i)
+				checksum += rx[i];
 
-                        if((rx[14] | (rx[15] << 8)) == checksum)
-                        {
-                                InterfaceVersion = rx[2];
-                                MaxPacketSize = (rx[4] << 8) | rx[3];
-                                printk("zephyr2: interface version %d, max packet size: %d\n", InterfaceVersion, MaxPacketSize);
+			if((rx[14] | (rx[15] << 8)) == checksum)
+			{
+				InterfaceVersion = rx[2];
+				MaxPacketSize = (rx[4] << 8) | rx[3];
+				printk("zephyr2: interface version %d, max packet size: %d\n", InterfaceVersion, MaxPacketSize);
 
-                                return true;
-                        }
-                }
+				return true;
+			}
+		}
 
-                InterfaceVersion = 0;
-                MaxPacketSize = 1000;
-                msleep(3);
-        }
+		InterfaceVersion = 0;
+		MaxPacketSize = 1000;
+		msleep(3);
+	}
 
-        printk("zephyr2: failed getting interface version!\n");
+	printk("zephyr2: failed getting interface version!\n");
 
-        return false;
+	return false;
 }
 
 static bool loadConstructedFirmware(const u8* firmware, int len)
@@ -724,13 +716,13 @@ static bool loadConstructedFirmware(const u8* firmware, int len)
 
 		printk("zephyr2: uploading firmware\n");
 
-//                GotATN = 0;
-                z2_tx(FAST_SPEED, firmware, len);
+		//                GotATN = 0;
+		z2_tx(FAST_SPEED, firmware, len);
 
 		udelay(300);
 
 		if(z2_shortAck() == 0x4BC1)
-                        return true;
+			return true;
 
 	}
 
@@ -739,87 +731,87 @@ static bool loadConstructedFirmware(const u8* firmware, int len)
 
 static int loadProxCal(const u8* firmware, int len)
 {
-        u32 address = 0x400180;
-        const u8* data = firmware;
-        int left = (len + 3) & ~0x3;
-        int try;
+	u32 address = 0x400180;
+	const u8* data = firmware;
+	int left = (len + 3) & ~0x3;
+	int try;
 
-        while(left > 0)
-        {
-                int toUpload = left;
-                if(toUpload > (MAX_BUFFER_SIZE - 0x10))
-				{
-					printk("zephyr2: prox-cal too big for buffer.\n");
-                    toUpload = MAX_BUFFER_SIZE - 0x10;
-				}
+	while(left > 0)
+	{
+		int toUpload = left;
+		if(toUpload > (MAX_BUFFER_SIZE - 0x10))
+		{
+			printk("zephyr2: prox-cal too big for buffer.\n");
+			toUpload = MAX_BUFFER_SIZE - 0x10;
+		}
 
-                OutputPacket[0] = 0x18;
-                OutputPacket[1] = 0xE1;
+		OutputPacket[0] = 0x18;
+		OutputPacket[1] = 0xE1;
 
-                makeBootloaderDataPacket(OutputPacket + 2, address, data, toUpload, NULL);
+		makeBootloaderDataPacket(OutputPacket + 2, address, data, toUpload, NULL);
 
-                for(try = 0; try < 5; ++try)
-                {
-                        printk("zephyr2: uploading prox calibration data packet\r\n");
+		for(try = 0; try < 5; ++try)
+		{
+			printk("zephyr2: uploading prox calibration data packet\r\n");
 
-//                        GotATN = 0;
-                        z2_tx(FAST_SPEED, OutputPacket, toUpload + 0x10);
+			//                        GotATN = 0;
+			z2_tx(FAST_SPEED, OutputPacket, toUpload + 0x10);
 			udelay(300);
 
-                        if(z2_shortAck() == 0x4BC1)
-                                break;
-                }
+			if(z2_shortAck() == 0x4BC1)
+				break;
+		}
 
-                if(try == 5)
-                        return false;
+		if(try == 5)
+			return false;
 
-                address += toUpload;
-                data += toUpload;
-                left -= toUpload;
-        }
+		address += toUpload;
+		data += toUpload;
+		left -= toUpload;
+	}
 
-        return true;
+	return true;
 }
 
 static int loadCal(const u8* firmware, int len)
 {
-        u32 address = 0x400200;
-        const u8* data = firmware;
-        int left = (len + 3) & ~0x3;
-        int try;
+	u32 address = 0x400200;
+	const u8* data = firmware;
+	int left = (len + 3) & ~0x3;
+	int try;
 
-        while(left > 0)
-        {
-                int toUpload = left;
-                if(toUpload > 0x3F0)
-                        toUpload = 0x3F0;
+	while(left > 0)
+	{
+		int toUpload = left;
+		if(toUpload > 0x3F0)
+			toUpload = 0x3F0;
 
-                OutputPacket[0] = 0x18;
-                OutputPacket[1] = 0xE1;
+		OutputPacket[0] = 0x18;
+		OutputPacket[1] = 0xE1;
 
-                makeBootloaderDataPacket(OutputPacket + 2, address, data, toUpload, NULL);
+		makeBootloaderDataPacket(OutputPacket + 2, address, data, toUpload, NULL);
 
-                for(try = 0; try < 5; ++try)
-                {
-                        printk("zephyr2: uploading calibration data packet\r\n");
+		for(try = 0; try < 5; ++try)
+		{
+			printk("zephyr2: uploading calibration data packet\r\n");
 
-//                        GotATN = 0;
-                        z2_tx(FAST_SPEED, OutputPacket, toUpload + 0x10);
-						udelay(300);
+			//                        GotATN = 0;
+			z2_tx(FAST_SPEED, OutputPacket, toUpload + 0x10);
+			udelay(300);
 
-                        if(z2_shortAck() == 0x4BC1)
-                                break;
-                }
+			if(z2_shortAck() == 0x4BC1)
+				break;
+		}
 
-                if(try == 5)
-                        return false;
+		if(try == 5)
+			return false;
 
-                address += toUpload;
-                data += toUpload;
-                left -= toUpload;
-        }
+		address += toUpload;
+		data += toUpload;
+		left -= toUpload;
+	}
 
-        return true;
+	return true;
 }
 
 static u32 z2_getCalibration(void)
@@ -850,8 +842,8 @@ static int z2_calibrate(void)
 
 	if(z2_version != 0x5A020028 && z2_version != 0x5A02002A) // TODO: What the hell causes this to crash? ;_;
 	{
-		#define init_register(addr, a, b) if(!writeRegister(addr, (a), (b))) { \
-			printk("zephyr2: error initialising register " #addr "\n"); return false; }
+#define init_register(addr, a, b) if(!writeRegister(addr, (a), (b))) { \
+	printk("zephyr2: error initialising register " #addr "\n"); return false; }
 
 		printk("zephyr2: Initialising Registers...\n");
 		// -- BEGIN INITIALISING REGISTERS -- //
@@ -864,7 +856,7 @@ static int z2_calibrate(void)
 		// --- END INITIALISING REGISTERS --- //
 		printk("zephyr2: Initialised Registers\n");
 
-		#undef init_register
+#undef init_register
 	}
 
 	printk("zephyr2: calibration complete with 0x%x\n", z2_getCalibration());
@@ -874,89 +866,87 @@ static int z2_calibrate(void)
 
 static void sendExecutePacket(void)
 {
-        u8 tx[12];
-        u8 rx[12];
+	u8 tx[12];
+	u8 rx[12];
 
-        tx[0] = 0x1D;
-        tx[1] = 0x53;
+	tx[0] = 0x1D;
+	tx[1] = 0x53;
 
-        tx[2] = 0x18;
-        tx[3] = 0x00;
-        tx[4] = 0x10;
-        tx[5] = 0x00;
-        tx[6] = 0x00;
-        tx[7] = 0x01;
-        tx[8] = 0x00;
-        tx[9] = 0x00;
+	tx[2] = 0x18;
+	tx[3] = 0x00;
+	tx[4] = 0x10;
+	tx[5] = 0x00;
+	tx[6] = 0x00;
+	tx[7] = 0x01;
+	tx[8] = 0x00;
+	tx[9] = 0x00;
 
-		z2_makeU16Sum(tx+2, 8);
-        z2_txrx(NORMAL_SPEED, tx, sizeof(tx), rx, sizeof(rx));
+	z2_makeU16Sum(tx+2, 8);
+	z2_txrx(NORMAL_SPEED, tx, sizeof(tx), rx, sizeof(rx));
 
-        printk("zephyr2: execute packet sent\r\n");
+	printk("zephyr2: execute packet sent\r\n");
 }
 
 static int makeBootloaderDataPacket(u8* output, u32 destAddress, const u8* data, int dataLen, int* cksumOut)
 {
-        u32 checksum;
-        int i;
+	u32 checksum;
+	int i;
 
-        // This seems to be middle-endian! I've never seen this before.
+	// This seems to be middle-endian! I've never seen this before.
 
-        output[0] = 0x30;
-        output[1] = 0x01;
-		z2_makeU16(output+2, dataLen >> 2);
-		z2_makeU32(output+4, destAddress);
-		z2_makeU16Sum(output+2, 6);
+	output[0] = 0x30;
+	output[1] = 0x01;
+	z2_makeU16(output+2, dataLen >> 2);
+	z2_makeU32(output+4, destAddress);
+	z2_makeU16Sum(output+2, 6);
 
-        for(i = 0; i < dataLen; i += 4)
-        {
-                output[10 + i + 0] = data[i + 1];
-                output[10 + i + 1] = data[i + 0];
-                output[10 + i + 2] = data[i + 3];
-                output[10 + i + 3] = data[i + 2];
-        }
-
-		checksum = z2_makeU32Sum(output+10, dataLen);
-
-        if(cksumOut)
-                *cksumOut = checksum;
-
-        return dataLen;
-}
-
-static void z2_irq_handler(struct work_struct* work)
-{
-	if(z2_irq_count <= 0)
-		return;
-
-	do
+	for(i = 0; i < dataLen; i += 4)
 	{
-		z2_irq_count--;
-		//printk("zephyr2: Interrupt handled\n");
+		output[10 + i + 0] = data[i + 1];
+		output[10 + i + 1] = data[i + 0];
+		output[10 + i + 2] = data[i + 3];
+		output[10 + i + 3] = data[i + 2];
 	}
-	while(z2_readFrame() && z2_irq_count > 0);
-}
-DECLARE_WORK(z2_queue, &z2_irq_handler);
 
-static spinlock_t z2_irq_lock;
+	checksum = z2_makeU32Sum(output+10, dataLen);
+
+	if(cksumOut)
+		*cksumOut = checksum;
+
+	return dataLen;
+}
+
+static spinlock_t z2_atn_count_lock;
+
+static void z2_atn_handler(struct work_struct* work)
+{
+	unsigned long flags;
+
+	spin_lock_irqsave(&z2_atn_count_lock, flags);
+	while(z2_atn_count > 0)
+	{
+		--z2_atn_count;
+		spin_unlock_irqrestore(&z2_atn_count_lock, flags);
+		z2_readFrame();
+		spin_lock_irqsave(&z2_atn_count_lock, flags);
+	}
+	spin_unlock_irqrestore(&z2_atn_count_lock, flags);
+}
+DECLARE_WORK(z2_queue, &z2_atn_handler);
+
 static irqreturn_t z2_irq(int irq, void* pToken)
 {
-	unsigned long flags = 0;
-
-	//printk("zephyr2: Interrupt comes in\n");
+	unsigned long flags;
 
 	if(!FirmwareLoaded)
 		return IRQ_HANDLED;
 
-	spin_unlock_wait(&z2_irq_lock);
-	spin_lock_irqsave(&z2_irq_lock, flags);
+	spin_lock_irqsave(&z2_atn_count_lock, flags);
+	++z2_atn_count;
+	spin_unlock_irqrestore(&z2_atn_count_lock, flags);
 
-	z2_irq_count++;
 	schedule_work(&z2_queue);
 
-	spin_unlock_irqrestore(&z2_irq_lock, flags);
-	//printk("zephyr2: Interrupt queued\n");
-	//
 	return IRQ_HANDLED;
 }
 
@@ -967,6 +957,8 @@ int z2_setup(const u8* constructedFirmware, int constructedFirmwareLen, const u8
 	int err;
 	u8* reportBuffer;
 	int reportLen;
+
+	spin_lock_init(&z2_atn_count_lock);
 
 	if(!prox_cal)
 	{
@@ -1048,7 +1040,7 @@ int z2_setup(const u8* constructedFirmware, int constructedFirmwareLen, const u8
 
 	if(!z2_calibrate())
 	{
-			err = -1;
+		err = -1;
 		kfree(InputPacket);
 		kfree(OutputPacket);
 		kfree(GetInfoPacket);
@@ -1065,18 +1057,18 @@ int z2_setup(const u8* constructedFirmware, int constructedFirmwareLen, const u8
 	{
 		err = -1;
 		kfree(InputPacket);
-	        kfree(OutputPacket);
-	        kfree(GetInfoPacket);
-	        kfree(GetResultPacket);
-	        return err;
+		kfree(OutputPacket);
+		kfree(GetInfoPacket);
+		kfree(GetResultPacket);
+		return err;
 	}
 
 	reportBuffer = (u8*) kmalloc(MaxPacketSize, GFP_KERNEL);
 
 	if(!getReport(MT_INFO_FAMILYID, reportBuffer, &reportLen))
 	{
-			printk("zephyr2: failed getting family id!\n");
-			err = -1;
+		printk("zephyr2: failed getting family id!\n");
+		err = -1;
 		kfree(reportBuffer);
 		kfree(InputPacket);
 		kfree(OutputPacket);
@@ -1177,9 +1169,9 @@ int z2_setup(const u8* constructedFirmware, int constructedFirmwareLen, const u8
 	printk("\n");
 
 	if(BCDVersion > 0x23)
-			FlipNOP = true;
+		FlipNOP = true;
 	else
-			FlipNOP = false;
+		FlipNOP = false;
 
 	kfree(reportBuffer);
 
@@ -1233,52 +1225,13 @@ int z2_setup(const u8* constructedFirmware, int constructedFirmwareLen, const u8
 		return err;
 	}
 
-    CurNOP = 1;
+	CurNOP = 1;
 
-	spin_lock_init(&z2_irq_lock);
 	//spin_lock_init(&z2_readFrame_lock);
 
 	FirmwareLoaded = true;
 
 	return 0;
-}
-
-static void got_cal(const struct firmware* fw, void *context)
-{
-	if(!fw)
-	{
-		printk("zephyr2: couldn't get cal, trying again...\n");
-		request_firmware_nowait(THIS_MODULE, FW_ACTION_HOTPLUG, "zephyr2_cal.bin", multitouch_dev, NULL, got_cal);
-		return;
-	}
-
-	cal_fw = kmalloc(fw->size, GFP_KERNEL);
-	cal_fw_size = fw->size;
-	memcpy(cal_fw, fw->data, fw->size);
-
-	printk("zephyr2: initializing multitouch\n");
-	z2_setup(constructed_fw, constructed_fw_size, proxcal_fw, proxcal_fw_size, cal_fw, cal_fw_size);
-
-	/* caller will call release_firmware */
-}
-
-static void got_proxcal(const struct firmware* fw, void *context)
-{
-	if(!fw)
-	{
-		printk("zephyr2: couldn't get proxcal, trying again...\n");
-		request_firmware_nowait(THIS_MODULE, FW_ACTION_HOTPLUG, "zephyr2_proxcal.bin", multitouch_dev, NULL, got_proxcal);
-		return;
-	}
-
-	proxcal_fw = kmalloc(fw->size, GFP_KERNEL);
-	proxcal_fw_size = fw->size;
-	memcpy(proxcal_fw, fw->data, fw->size);
-
-	printk("zephyr2: requesting cal\n");
-	request_firmware_nowait(THIS_MODULE, FW_ACTION_HOTPLUG, "zephyr2_cal.bin", multitouch_dev, NULL, got_cal);
-
-	/* caller will call release_firmware */
 }
 
 static void got_constructed(const struct firmware* fw, void *context)
@@ -1294,8 +1247,7 @@ static void got_constructed(const struct firmware* fw, void *context)
 	constructed_fw_size = fw->size;
 	memcpy(constructed_fw, fw->data, fw->size);
 
-	printk("zephyr2: requesting proxcal\n");
-	request_firmware_nowait(THIS_MODULE, FW_ACTION_HOTPLUG, "zephyr2_proxcal.bin", multitouch_dev, NULL, got_proxcal);
+	z2_setup(constructed_fw, constructed_fw_size, proxcal_fw, proxcal_fw_size, cal_fw, cal_fw_size);
 
 	/* caller will call release_firmware */
 }
@@ -1357,6 +1309,37 @@ static void __exit iphone_multitouch_exit(void)
 
 module_init(iphone_multitouch_init);
 module_exit(iphone_multitouch_exit);
+
+#include <asm/setup.h>
+#define ATAG_IPHONE_PROX_CAL   0x54411004
+#define ATAG_IPHONE_MT_CAL     0x54411005
+
+struct atag_iphone_cal_data {
+	u32 size;
+	u8  data[];
+};
+
+static int __init parse_tag_prox_cal(const struct tag *tag)
+{
+	const struct atag_iphone_cal_data* cal_tag = (const struct atag_iphone_cal_data*)(((const u8*)tag) + sizeof(struct tag_header));
+
+	proxcal_fw_size = cal_tag->size;
+	memcpy(proxcal_fw, cal_tag->data, proxcal_fw_size);
+
+	return 0;
+}
+__tagtable(ATAG_IPHONE_PROX_CAL, parse_tag_prox_cal);
+
+static int __init parse_tag_mt_cal(const struct tag *tag)
+{
+	const struct atag_iphone_cal_data* cal_tag = (const struct atag_iphone_cal_data*)(((const u8*)tag) + sizeof(struct tag_header));
+
+	cal_fw_size = cal_tag->size;
+	memcpy(cal_fw, cal_tag->data, cal_fw_size);
+
+	return 0;
+}
+__tagtable(ATAG_IPHONE_MT_CAL, parse_tag_mt_cal);
 
 MODULE_DESCRIPTION("iPhone Zephyr 2 Multitouch Driver");
 MODULE_AUTHOR("Yiduo Wang");
