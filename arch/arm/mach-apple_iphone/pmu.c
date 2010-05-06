@@ -4,42 +4,81 @@
 #include <linux/platform_device.h>
 #include <linux/rtc.h>
 #include <linux/bcd.h>
+#include <linux/i2c.h>
 #include <mach/pmu.h>
-#include <mach/iphone-i2c.h>
+#include <linux/i2c.h>
 #include <mach/gpio.h>
 
+/*typedef struct PMURegisterData {
+	uint8_t reg;
+	uint8_t data;
+} PMURegisterData;*/
+
+
+static struct i2c_client *pmu_i2c;
+static struct rtc_device *rtc;
+
+
+
 static int iphone_pmu_get_reg(int reg) {
-	uint8_t registers[1];
+	struct i2c_msg xfer[2];
 	uint8_t out[1];
+	int ret;
+ 
+	xfer[0].addr = PMU_GETADDR;
+	xfer[0].flags = 0;
+	xfer[0].len = 1;
+	xfer[0].buf = (u8 *)&reg;
 
-	registers[0] = reg;
+	xfer[1].addr = PMU_GETADDR;
+	xfer[1].flags = I2C_M_RD;
+	xfer[1].len = 1;
+	xfer[1].buf = (u8 *)out;
 
-	iphone_i2c_rx(PMU_I2C_BUS, PMU_GETADDR, registers, 1, out, 1);
+	ret = i2c_transfer(pmu_i2c->adapter, xfer, 2);
+
 	return out[0];
 }
 
 static int iphone_pmu_get_regs(int reg, uint8_t* out, int count) {
-	uint8_t registers[1];
+	struct i2c_msg xfer[2];
+	int ret;
+ 
+	xfer[0].addr = PMU_GETADDR;
+	xfer[0].flags = 0;
+	xfer[0].len = 1;
+	xfer[0].buf = (u8 *)&reg;
 
-	registers[0] = reg;
+	xfer[1].addr = PMU_GETADDR;
+	xfer[1].flags = I2C_M_RD;
+	xfer[1].len = count;
+	xfer[1].buf = (u8 *)out;
+ 
+	ret = i2c_transfer(pmu_i2c->adapter, xfer, 2);
 
-	return iphone_i2c_rx(PMU_I2C_BUS, PMU_GETADDR, registers, 1, out, count);
+	return ret;
 }
 
 static int iphone_pmu_write_reg(int reg, int data, int verify) {
 	uint8_t command[2];
-	uint8_t pmuReg = reg;
 	uint8_t buffer = 0;
+
+	struct i2c_msg xfer[2];
 
 	command[0] = reg;
 	command[1] = data;
 
-	iphone_i2c_tx(PMU_I2C_BUS, PMU_SETADDR, command, sizeof(command));
+	xfer[0].addr = PMU_SETADDR;
+	xfer[0].flags = 0;
+	xfer[0].len = sizeof(command);
+	xfer[0].buf = (u8 *)command;
+
+	i2c_transfer(pmu_i2c->adapter, xfer, 1);
 
 	if(!verify)
 		return 0;
 
-	iphone_i2c_rx(PMU_I2C_BUS, PMU_GETADDR, &pmuReg, 1, &buffer, 1);
+	buffer = iphone_pmu_get_reg(reg);
 
 	if(buffer == data)
 		return 0;
@@ -155,13 +194,17 @@ int iphone_pmu_write_regs(const PMURegisterData* regs, int num) {
 	return 0;
 }
 
-/*static void iphone_pmu_write_oocshdwn(int data) {
+static void iphone_pmu_write_oocshdwn(int data) {
 	uint8_t registers[1];
 	uint8_t discardData[5];
 	uint8_t poweroffData[] = {7, 0xAA, 0xFC, 0x0, 0x0, 0x0};
 	registers[0] = 2;
-	iphone_i2c_rx(PMU_I2C_BUS, PMU_GETADDR, registers, sizeof(registers), discardData, sizeof(data));
-	iphone_i2c_tx(PMU_I2C_BUS, PMU_SETADDR, poweroffData, sizeof(poweroffData));
+
+	i2c_master_send(pmu_i2c, registers, sizeof(registers));
+	i2c_master_recv(pmu_i2c, discardData, sizeof(data));
+	i2c_master_send(pmu_i2c, poweroffData, sizeof(poweroffData));
+	//iphone_i2c_rx(PMU_I2C_BUS, PMU_GETADDR, registers, sizeof(registers), discardData, sizeof(data));
+	//iphone_i2c_tx(PMU_I2C_BUS, PMU_SETADDR, poweroffData, sizeof(poweroffData));
 	iphone_pmu_write_reg(PMU_OOCSHDWN, data, 0);
 	while(1) {
 		udelay(100000);
@@ -172,7 +215,7 @@ static void iphone_pmu_poweroff(void) {
 	//lcd_shutdown();
 	iphone_pmu_write_oocshdwn(PMU_OOCSHDWN_GOSTBY);
 }
-*/
+
 
 /*static int iphone_pmu_get_dayofweek(void) {
 	return iphone_pmu_get_reg(PMU_RTCWD) & PMU_RTCWD_MASK;
@@ -239,21 +282,20 @@ static const struct rtc_class_ops iphone_rtcops = {
 	.set_time	= iphone_rtc_settime,
 };
 
-static int __devinit iphone_pmu_probe(struct platform_device *pdev)
+static int pmu_i2c_probe(struct i2c_client *i2c,
+			    const struct i2c_device_id *id)
 {
-	struct rtc_device *rtc;
 	int ret = 0;
+	pmu_i2c = i2c;
 
-	rtc = rtc_device_register("iphone", &pdev->dev, &iphone_rtcops,
+	rtc = rtc_device_register("iphone", &i2c->dev, &iphone_rtcops,
 			THIS_MODULE);
 
 	if (IS_ERR(rtc)) {
-		dev_err(&pdev->dev, "cannot attach rtc\n");
+		dev_err(&i2c->dev, "cannot attach rtc\n");
 		ret = PTR_ERR(rtc);
 		goto err_nortc;
 	}
-
-	platform_set_drvdata(pdev, rtc);
 
 	return 0;
 
@@ -262,54 +304,48 @@ err_nortc:
 	return ret;
 }
 
-static int __devexit iphone_pmu_remove(struct platform_device *dev)
+static int __devexit pmu_i2c_remove(struct i2c_client *client)
 {
-	struct rtc_device *rtc = platform_get_drvdata(dev);
-	platform_set_drvdata(dev, NULL);
+	pmu_i2c = NULL;
 	rtc_device_unregister(rtc);
 	return 0;
 }
 
-static struct platform_driver iphone_pmu_driver = {
-	.probe		= iphone_pmu_probe,
-	.remove		= __devexit_p(iphone_pmu_remove),
-	.suspend	= NULL,
-	.resume		= NULL,
-	.driver		= {
-		.name	= "iphone-pmu",
-		.owner	= THIS_MODULE,
+static const struct i2c_device_id pmu_i2c_id[] = {
+	{ "iphone-pmu", 0 },
+	{ }
+};
+MODULE_DEVICE_TABLE(i2c, pmu_i2c_id);
+
+static struct i2c_driver pmu_i2c_driver = {
+	.driver = {
+		.name = "iphone-pmu",
+		.owner = THIS_MODULE,
 	},
+	.probe = pmu_i2c_probe,
+	.remove = pmu_i2c_remove,
+	.id_table = pmu_i2c_id,
 };
 
-static struct platform_device *iphone_pmu_device;
-
-static int __init iphone_pmu_init(void)
+static int __init pmu_modinit(void)
 {
 	int ret;
 
-	ret = platform_driver_register(&iphone_pmu_driver);
-	if(!ret)
-	{
-		iphone_pmu_device = platform_device_register_simple("iphone-pmu", 0,
-								NULL, 0);
-
-		if (IS_ERR(iphone_pmu_device)) {
-			platform_driver_unregister(&iphone_pmu_driver);
-			ret = PTR_ERR(iphone_pmu_device);
-		}
-	}
-
+	ret = i2c_add_driver(&pmu_i2c_driver);
+	if (ret != 0)
+		pr_err("pmu: Unable to register I2C driver: %d\n", ret);
 	return ret;
 }
+module_init(pmu_modinit);
 
-static void __exit iphone_pmu_exit(void)
+static void __exit pmu_exit(void)
 {
-	platform_device_unregister(iphone_pmu_device);
-	platform_driver_unregister(&iphone_pmu_driver);
+	i2c_del_driver(&pmu_i2c_driver);
 }
+module_exit(pmu_exit);
 
-module_init(iphone_pmu_init);
-module_exit(iphone_pmu_exit);
 
+MODULE_DESCRIPTION("iPhone pmu driver");
+MODULE_AUTHOR("Fredrik Gustafsson <frgsutaf@kth.se>");
 MODULE_LICENSE("GPL");
 
