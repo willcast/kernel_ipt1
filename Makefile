@@ -85,7 +85,7 @@ endif
 # The O= assignment takes precedence over the KBUILD_OUTPUT environment
 # variable.
 
-O=/home/planetbeing/kernel-build
+O=/home/fredrik/kernel-build
 
 # KBUILD_SRC is set on invocation of make in OBJ directory
 # KBUILD_SRC is not intended to be used by the regular user (for now)
@@ -182,7 +182,7 @@ SUBARCH := $(shell uname -m | sed -e s/i.86/i386/ -e s/sun4u/sparc64/ \
 # Note: Some architectures assign CROSS_COMPILE in their arch/*/Makefile
 export KBUILD_BUILDHOST := $(SUBARCH)
 ARCH		?= arm
-CROSS_COMPILE	?= /home/planetbeing/idroid-repos/idroid/prebuilt/linux-x86/toolchain/arm-eabi-4.4.0/bin/arm-eabi-
+CROSS_COMPILE	?= /home/fredrik/prebuilt/linux-x86/toolchain/arm-eabi-4.4.0/bin/arm-eabi-
 
 # Architecture as present in compile.h
 UTS_MACHINE 	:= $(ARCH)
