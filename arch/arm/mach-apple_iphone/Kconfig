@@ -3,19 +3,19 @@ menu "Apple iPhone platform type"
 
 choice
 	prompt "Model"
-	default IPHONE
+	default IPHONE_2G
 
-config IPHONE
+config IPHONE_2G
 	bool "iPhone 2G"
 	help
 	  Select this option if the device is an iPhone 2G.
 
-config 3G
+config IPHONE_3G
 	bool "iPhone 3G"
 	help
 	  Select this option if the device is an iPhone 3G.
 
-config IPOD_TOUCH
+config IPODTOUCH_1G
 	bool "iPod touch 1G"
 	help
 	  Select this option if the device is an iPod touch 1G.

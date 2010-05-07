@@ -13,7 +13,7 @@
 #define SDIO_CLOCKGATE 0xB
 #define SDIO_INT 0x2A
 
-#ifdef CONFIG_IPOD
+#ifdef CONFIG_IPODTOUCH_1G
 #define SDIO_GPIO_POWER 0x1701
 #else
 #define SDIO_GPIO_POWER 0x607
