@@ -8,11 +8,6 @@
 #include <mach/iphone-i2c.h>
 #include <mach/gpio.h>
 
-typedef struct PMURegisterData {
-	uint8_t reg;
-	uint8_t data;
-} PMURegisterData;
-
 static int iphone_pmu_get_reg(int reg) {
 	uint8_t registers[1];
 	uint8_t out[1];
@@ -151,7 +146,7 @@ int iphone_pmu_get_battery_voltage(void)
 	return query_adc(PMU_ADCC1_ADCINMUX_BATSNS_DIV << PMU_ADCC1_ADCINMUX_SHIFT);
 }
 
-/*static int iphone_pmu_write_regs(const PMURegisterData* regs, int num) {
+int iphone_pmu_write_regs(const PMURegisterData* regs, int num) {
 	int i;
 	for(i = 0; i < num; i++) {
 		iphone_pmu_write_reg(regs[i].reg, regs[i].data, 1);
@@ -160,7 +155,7 @@ int iphone_pmu_get_battery_voltage(void)
 	return 0;
 }
 
-static void iphone_pmu_write_oocshdwn(int data) {
+/*static void iphone_pmu_write_oocshdwn(int data) {
 	uint8_t registers[1];
 	uint8_t discardData[5];
 	uint8_t poweroffData[] = {7, 0xAA, 0xFC, 0x0, 0x0, 0x0};
