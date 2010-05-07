@@ -80,6 +80,11 @@
 #define PMU_ADCC1_ADCINMUX_BATTEMP 0x6
 #define PMU_ADCC1_ADCINMUX_ADCIN1 0x7
 
+typedef struct PMURegisterData {
+        uint8_t reg;
+        uint8_t data;
+} PMURegisterData;
+
 typedef enum PowerSupplyType {
 	PowerSupplyTypeError,
 	PowerSupplyTypeBattery,
@@ -92,6 +97,8 @@ typedef enum PowerSupplyType {
 int iphone_pmu_get_battery_voltage(void);
 void iphone_pmu_charge_settings(int UseUSB, int SuspendUSB, int StopCharger);
 PowerSupplyType iphone_pmu_get_power_supply(void);
+
+int iphone_pmu_write_regs(const PMURegisterData* regs, int num);
 
 #endif
 
