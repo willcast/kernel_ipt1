@@ -202,8 +202,14 @@ void __init iphone_map_io(void)
 }
 
 static struct i2c_board_info __initdata iphone_i2c_board_info[] = {
-	{	/*	ALS	*/
+	{
+		I2C_BOARD_INFO("iphone-pmu", 0xe6),
+	},
+	{
 		I2C_BOARD_INFO("tsl2561", 0x92),
+	},
+	{
+		I2C_BOARD_INFO("wm8758", 0x34),
 	},
 };
 

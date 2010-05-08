@@ -57,7 +57,7 @@ I2CError iphone_i2c_recv(int bus, int iicaddr, int send_stop, void* buffer, int 
 	mutex_lock(I2C[bus].rw_sem);
 	I2C[bus].address = iicaddr;
 	I2C[bus].is_write = 0;
-	I2C[bus].send_stop = 1;
+	I2C[bus].send_stop = send_stop;
 	I2C[bus].bufferLen = len;
 	I2C[bus].buffer = (uint8_t*) buffer;
 	ret = iphone_i2c_readwrite(&I2C[bus]);
@@ -70,7 +70,7 @@ I2CError iphone_i2c_send(int bus, int iicaddr, int send_stop, const void* buffer
 	mutex_lock(I2C[bus].rw_sem);
 	I2C[bus].address = iicaddr;
 	I2C[bus].is_write = 1;
-	I2C[bus].send_stop = 1;
+	I2C[bus].send_stop = send_stop;
 	I2C[bus].bufferLen = len;
 	I2C[bus].buffer = (uint8_t*) buffer;
 	ret = iphone_i2c_readwrite(&I2C[bus]);
@@ -151,26 +151,24 @@ static void do_i2c(I2CInfo* i2c) {
 		switch(i2c->state) {
 			case I2CSetup:
 				__raw_writel(i2c->iiccon_settings | IICCON_ACKGEN, i2c->register_IICCON);
-				__raw_writel(i2c->address, i2c->register_IICDS);
 				i2c->operation_result = OPERATION_SEND;
 				if(i2c->is_write) {
+					__raw_writel(i2c->address & ~1, i2c->register_IICDS);
 					i2c->current_iicstat =
 						(IICSTAT_MODE_MASTERTX << IICSTAT_MODE_SHIFT)
 						| (IICSTAT_STARTSTOPGEN_START << IICSTAT_STARTSTOPGEN_SHIFT)
 						| (1 << IICSTAT_DATAOUTPUT_ENABLE_SHIFT);
+					i2c->state = I2CTx;
 				} else {
+					__raw_writel(i2c->address | 1, i2c->register_IICDS);
 					i2c->current_iicstat =
 						(IICSTAT_MODE_MASTERRX << IICSTAT_MODE_SHIFT)
 						| (IICSTAT_STARTSTOPGEN_START << IICSTAT_STARTSTOPGEN_SHIFT)
 						| (1 << IICSTAT_DATAOUTPUT_ENABLE_SHIFT);
+					i2c->state = I2CRxSetup;
 				}
 				__raw_writel(i2c->current_iicstat, i2c->register_IICSTAT);
 				i2c->cursor = 0;
-				if(i2c->is_write) {
-					i2c->state = I2CTx;
-				} else {
-					i2c->state = I2CRxSetup;
-				}
 				break;
 			case I2CTx:
 				if((__raw_readl(i2c->register_IICSTAT) & IICSTAT_LASTRECEIVEDBIT) == 0) {
@@ -223,8 +221,9 @@ static void do_i2c(I2CInfo* i2c) {
 						i2c->current_iicstat &= ~(IICSTAT_MODE_SLAVETX << IICSTAT_MODE_SHIFT);
 					}
 				} else {
-					i2c->current_iicstat &= (IICSTAT_MODE_SLAVETX << IICSTAT_MODE_SHIFT) | (IICSTAT_STARTSTOPGEN_MASK << IICSTAT_STARTSTOPGEN_SHIFT);
+					i2c->current_iicstat = (IICSTAT_MODE_MASTERRX << IICSTAT_MODE_SHIFT) | (IICSTAT_STARTSTOPGEN_MASK << IICSTAT_STARTSTOPGEN_SHIFT);
 				}
+
 				__raw_writel(i2c->current_iicstat, i2c->register_IICSTAT);
 				__raw_writel(i2c->iiccon_settings | IICCON_INTPENDING, i2c->register_IICCON);
 				i2c->state =I2CDone;
@@ -265,12 +264,8 @@ static int iphone_i2c_xfer(struct i2c_adapter *adapter,
 	for(i=0; i<num; i++)
 	{
 		msg = &msgs[i];
-		
-		// Not last message and is same slave address as next
-		if(i != num-1)
-			send_stop = (msg->addr == msgs[i+1].addr);
-		else
-			send_stop = 0;
+
+		send_stop = (i == num-1) || (msgs[i+1].addr != msg->addr);
 		
 		bus = get_bus(msg->addr);
 		if(msg->flags & I2C_M_RD)
@@ -282,13 +277,12 @@ static int iphone_i2c_xfer(struct i2c_adapter *adapter,
 }
 
 /*	TEMPORARY LEGACY SUPPORT	*/
-
+/*
 I2CError iphone_i2c_rx(int bus, int iicaddr, const uint8_t* registers, int num_regs, void* buffer, int len)
 {
          I2CError ret;
          struct i2c_msg xfer[2];
  
-         /* Write register */
          xfer[0].addr = iicaddr;
          xfer[0].flags = 0;
          xfer[0].len = num_regs;
@@ -308,7 +302,6 @@ I2CError iphone_i2c_tx(int bus, int iicaddr, void* buffer, int len)
          I2CError ret;
          struct i2c_msg xfer[1];
  
-         /* Write register */
          xfer[0].addr = iicaddr;
          xfer[0].flags = 0;
          xfer[0].len = len;
@@ -317,11 +310,11 @@ I2CError iphone_i2c_tx(int bus, int iicaddr, void* buffer, int len)
          ret = iphone_i2c_xfer(NULL, xfer, 1);
          return ret;
 }
-
+*/
 
 static u32 iphone_i2c_func(struct i2c_adapter *adap)
 {
-	return I2C_FUNC_I2C | I2C_FUNC_SMBUS_EMUL;
+	return I2C_FUNC_I2C;
 }
 
 static const struct i2c_algorithm iphone_i2c_algorithm = {
@@ -330,59 +323,30 @@ static const struct i2c_algorithm iphone_i2c_algorithm = {
 };
 
 static struct i2c_adapter iphone_i2c_adapter = {
+	.id 		= 0,
 	.owner		= THIS_MODULE,
-	.class      = I2C_CLASS_HWMON | I2C_CLASS_SPD,
+	.class    	= 0, 
 	.algo		= &iphone_i2c_algorithm,
+	.nr		= 0,
 };
 
-static int iphone_i2c_probe(struct platform_device * pdev)
+static int iphone_i2c_archinit(void)
 {
-	printk("iphone-i2c: i got probed!\n");
-	return i2c_add_adapter(&iphone_i2c_adapter);
-}
-
-static int iphone_i2c_suspend(struct platform_device *pdev, pm_message_t state)
-{
-	/* Revisit: Write suspend routine! */
+	iphone_i2c_setup();
 	return 0;
 }
-
-static int iphone_i2c_resume(struct platform_device *pdev)
-{
-	/* Revisit: Write resume routine! */
-	return 0;
-}
-
-static int __exit
-iphone_i2c_remove(void)
-{
-	/* Revisit: Should probably be written more dynamic
-	to allow real loading/unloading. */
-	return i2c_del_adapter(&iphone_i2c_adapter);
-}
-
-static struct platform_driver iphone_i2c_driver = {
-	.driver = {
-		.name	= "iphone-i2c",
-		.owner	= THIS_MODULE,
-	},
-	.probe		= iphone_i2c_probe,
-	.remove		= __exit_p(iphone_i2c_remove),
-	.suspend        = iphone_i2c_suspend,
-	.resume         = iphone_i2c_resume,
-
-};
+arch_initcall(iphone_i2c_archinit);
 
 static int __init iphone_i2c_init(void)
 {
+	
 	printk("iphone-i2c: going to setup/init now!\n");
-	iphone_i2c_setup();
-	return platform_driver_register(&iphone_i2c_driver);
+	return i2c_add_numbered_adapter(&iphone_i2c_adapter);
 }
 
 static void __exit iphone_i2c_exit(void)
 {
-	platform_driver_unregister(&iphone_i2c_driver);
+	i2c_del_adapter(&iphone_i2c_adapter);
 }
 
 module_init(iphone_i2c_init);
@@ -409,6 +373,6 @@ struct platform_device iphone_i2c = {
 };
 
 MODULE_AUTHOR("Fredrik Gustafsson <frgustaf@kth.se>");
-MODULE_DESCRIPTION("iPhone iphone_i2c i2c adapter");
+MODULE_DESCRIPTION("iPhone i2c adapter");
 MODULE_LICENSE("GPL");
 
