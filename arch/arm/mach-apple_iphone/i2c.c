@@ -141,6 +141,10 @@ static I2CError iphone_i2c_readwrite(I2CInfo* i2c) {
 		do_i2c(i2c);
 	}
 	
+	if(i2c->error_code != I2CNoError)
+	{
+		printk("I2C %s Command Failed!", i2c->is_write ? "Write" : "Read");
+	}
 	return i2c->error_code;
 }
 
@@ -150,7 +154,11 @@ static void do_i2c(I2CInfo* i2c) {
 		proceed = 0;
 		switch(i2c->state) {
 			case I2CSetup:
-				__raw_writel(i2c->iiccon_settings | IICCON_ACKGEN, i2c->register_IICCON);
+				if(i2c->send_stop)
+					__raw_writel(i2c->iiccon_settings | IICCON_ACKGEN, i2c->register_IICCON);
+				else
+					__raw_writel(i2c->iiccon_settings, i2c->register_IICCON);
+
 				__raw_writel(i2c->address, i2c->register_IICDS);
 				i2c->operation_result = OPERATION_SEND;
 				if(i2c->is_write) {
