@@ -57,7 +57,7 @@ I2CError iphone_i2c_recv(int bus, int iicaddr, int send_stop, void* buffer, int 
 	mutex_lock(I2C[bus].rw_sem);
 	I2C[bus].address = iicaddr;
 	I2C[bus].is_write = 0;
-	I2C[bus].send_stop = 1;
+	I2C[bus].send_stop = send_stop;
 	I2C[bus].bufferLen = len;
 	I2C[bus].buffer = (uint8_t*) buffer;
 	ret = iphone_i2c_readwrite(&I2C[bus]);
@@ -70,7 +70,7 @@ I2CError iphone_i2c_send(int bus, int iicaddr, int send_stop, const void* buffer
 	mutex_lock(I2C[bus].rw_sem);
 	I2C[bus].address = iicaddr;
 	I2C[bus].is_write = 1;
-	I2C[bus].send_stop = 1;
+	I2C[bus].send_stop = send_stop;
 	I2C[bus].bufferLen = len;
 	I2C[bus].buffer = (uint8_t*) buffer;
 	ret = iphone_i2c_readwrite(&I2C[bus]);
@@ -178,7 +178,12 @@ static void do_i2c(I2CInfo* i2c) {
 						// need to send more from the register list
 						i2c->operation_result = OPERATION_SEND;
 						__raw_writel(i2c->buffer[i2c->cursor++], i2c->register_IICDS);
-						__raw_writel(i2c->iiccon_settings | IICCON_INTPENDING | IICCON_ACKGEN, i2c->register_IICCON);
+
+						if(i2c->send_stop)
+							__raw_writel(i2c->iiccon_settings | IICCON_INTPENDING | IICCON_ACKGEN, i2c->register_IICCON);
+						else
+							__raw_writel(i2c->iiccon_settings | IICCON_INTPENDING, i2c->register_IICCON);
+
 					} else {
 						i2c->state = I2CFinish;
 						proceed = 1;
@@ -225,6 +230,7 @@ static void do_i2c(I2CInfo* i2c) {
 				} else {
 					i2c->current_iicstat &= (IICSTAT_MODE_SLAVETX << IICSTAT_MODE_SHIFT) | (IICSTAT_STARTSTOPGEN_MASK << IICSTAT_STARTSTOPGEN_SHIFT);
 				}
+
 				__raw_writel(i2c->current_iicstat, i2c->register_IICSTAT);
 				__raw_writel(i2c->iiccon_settings | IICCON_INTPENDING, i2c->register_IICCON);
 				i2c->state =I2CDone;
@@ -267,10 +273,12 @@ static int iphone_i2c_xfer(struct i2c_adapter *adapter,
 		msg = &msgs[i];
 		
 		// Not last message and is same slave address as next
-		if(i != num-1)
+		/*if(i != num-1)
 			send_stop = (msg->addr == msgs[i+1].addr);
 		else
-			send_stop = 0;
+			send_stop = 0;*/
+
+		send_stop = (i == num-1) || (msgs[i+1].addr != msg->addr);
 		
 		bus = get_bus(msg->addr);
 		if(msg->flags & I2C_M_RD)
@@ -321,7 +329,7 @@ I2CError iphone_i2c_tx(int bus, int iicaddr, void* buffer, int len)
 
 static u32 iphone_i2c_func(struct i2c_adapter *adap)
 {
-	return I2C_FUNC_I2C | I2C_FUNC_SMBUS_EMUL;
+	return I2C_FUNC_I2C;
 }
 
 static const struct i2c_algorithm iphone_i2c_algorithm = {
@@ -330,59 +338,37 @@ static const struct i2c_algorithm iphone_i2c_algorithm = {
 };
 
 static struct i2c_adapter iphone_i2c_adapter = {
+	.id 		= 0,
 	.owner		= THIS_MODULE,
-	.class      = I2C_CLASS_HWMON | I2C_CLASS_SPD,
+	.class      = 0, 
 	.algo		= &iphone_i2c_algorithm,
+	.nr			= 0,
 };
 
-static int iphone_i2c_probe(struct platform_device * pdev)
+static struct i2c_board_info iphone_i2c_devices[] =
 {
-	printk("iphone-i2c: i got probed!\n");
-	return i2c_add_adapter(&iphone_i2c_adapter);
-}
-
-static int iphone_i2c_suspend(struct platform_device *pdev, pm_message_t state)
-{
-	/* Revisit: Write suspend routine! */
-	return 0;
-}
-
-static int iphone_i2c_resume(struct platform_device *pdev)
-{
-	/* Revisit: Write resume routine! */
-	return 0;
-}
-
-static int __exit
-iphone_i2c_remove(void)
-{
-	/* Revisit: Should probably be written more dynamic
-	to allow real loading/unloading. */
-	return i2c_del_adapter(&iphone_i2c_adapter);
-}
-
-static struct platform_driver iphone_i2c_driver = {
-	.driver = {
-		.name	= "iphone-i2c",
-		.owner	= THIS_MODULE,
+	{
+		I2C_BOARD_INFO("wm8991", 0x36),
 	},
-	.probe		= iphone_i2c_probe,
-	.remove		= __exit_p(iphone_i2c_remove),
-	.suspend        = iphone_i2c_suspend,
-	.resume         = iphone_i2c_resume,
-
 };
+
+static int iphone_i2c_archinit(void)
+{
+	iphone_i2c_setup();
+	i2c_register_board_info(0, iphone_i2c_devices, ARRAY_SIZE(iphone_i2c_devices));
+	return 0;
+}
+arch_initcall(iphone_i2c_archinit);
 
 static int __init iphone_i2c_init(void)
-{
+{	
 	printk("iphone-i2c: going to setup/init now!\n");
-	iphone_i2c_setup();
-	return platform_driver_register(&iphone_i2c_driver);
+	return i2c_add_numbered_adapter(&iphone_i2c_adapter);
 }
 
 static void __exit iphone_i2c_exit(void)
 {
-	platform_driver_unregister(&iphone_i2c_driver);
+	i2c_del_adapter(&iphone_i2c_adapter);
 }
 
 module_init(iphone_i2c_init);

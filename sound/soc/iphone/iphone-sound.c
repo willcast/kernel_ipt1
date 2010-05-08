@@ -8,7 +8,11 @@
 
 #include "iphone-audio.h"
 
-static int iphone_soc_to_wm8758_init(struct snd_soc_codec *codec)
+#ifdef CONFIG_IPHONE_3G
+#include "../codecs/wm8991.h"
+#endif
+
+/*static int iphone_soc_to_wm8758_init(struct snd_soc_codec *codec)
 {
 	pr_debug("ENTER iphone_soc_to_wm8758_init\n");
 	return 0;
@@ -18,22 +22,32 @@ static int iphone_soc_to_bb_init(struct snd_soc_codec *codec)
 {
 	pr_debug("ENTER iphone_soc_to_bb_init\n");
 	return 0;
-}
+}*/
 
 static struct snd_soc_dai_link iphone_dai_links[] = {
+#ifdef CONFIG_IPHONE_2G
 	{
-	.name           = "WM8758",
-	.stream_name    = "WM8758",
+		.name           = "WM8758",
+		.stream_name    = "WM8758",
 		.cpu_dai        = &iphone_i2s_wm8758_dai,
-	.codec_dai      = &iphone_wm8758_dai,
-	.init           = iphone_soc_to_wm8758_init,
+		.codec_dai      = &wm8758_dai,
+		//.init           = iphone_soc_to_wm8758_init,
 	},
+#endif
+#ifdef CONFIG_IPHONE_3G
+	{
+		.name			= "WM8991",
+		.stream_name	= "WM8991",
+		.cpu_dai		= &iphone_i2s_wm8758_dai, // This is bad, jah?
+		.codec_dai		= &wm8991_dai,
+	},
+#endif
 	{
 		.name           = "Baseband",
 		.stream_name    = "Baseband",
 		.cpu_dai        = &iphone_i2s_bb_dai,
 		.codec_dai      = &iphone_bb_dai,
-		.init           = iphone_soc_to_bb_init,
+		//.init           = iphone_soc_to_bb_init,
 	}
 };
 
@@ -44,9 +58,25 @@ static struct snd_soc_card iphone_snd_soc_card = {
 	.num_links      = 2,
 };
 
+//#ifdef CONFIG_IPHONE_3G
+#if 0
+static struct wm8990_setup_data wm8991_i2c_setup = {
+	.i2c_bus = 0,
+	.i2c_address = 0x36,
+};
+#endif
+
 static struct snd_soc_device iphone_snd_soc_device = {
 	.card           = &iphone_snd_soc_card,
-	.codec_dev      = &soc_codec_dev_iphone,
+
+#ifdef CONFIG_IPHONE_2G
+	.codec_dev      = &soc_codec_dev_wm8758,
+#endif
+
+#ifdef CONFIG_IPHONE_3G
+	.codec_dev		= &soc_codec_dev_wm8991,
+	//.codec_data		= &wm8991_i2c_setup,
+#endif
 };
 
 static struct platform_device *snd_dev;
@@ -67,6 +97,7 @@ static int __init iphone_sound_init(void)
 
 	ret = platform_device_add(snd_dev);
 	if (ret) {
+
 		printk("failed to add soc-audio dev\n");
 		return ret;
 	}

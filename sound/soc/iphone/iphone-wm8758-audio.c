@@ -517,7 +517,7 @@ static int iphone_wm8758_mute(struct snd_soc_dai *dai, int mute)
 	return 0;
 }
 
-static struct snd_soc_dai_ops iphone_wm8758_dai_ops = {
+static struct snd_soc_dai_ops wm8758_dai_ops = {
 	.startup = iphone_wm8758_pcm_startup,
 	.hw_params = iphone_wm8758_pcm_hw_params,
 	.set_fmt = iphone_wm8758_set_dai_fmt,
@@ -525,7 +525,7 @@ static struct snd_soc_dai_ops iphone_wm8758_dai_ops = {
 	.digital_mute = iphone_wm8758_mute,
 };
 
-struct snd_soc_dai iphone_wm8758_dai = {
+struct snd_soc_dai wm8758_dai = {
 	.name = "wm8758",
 	.playback = {
 		.stream_name = "Playback",
@@ -541,7 +541,7 @@ struct snd_soc_dai iphone_wm8758_dai = {
 		.rates = SNDRV_PCM_RATE_44100,
 		.formats = SNDRV_PCM_FMTBIT_S16_LE,
 	 },
-	.ops = &iphone_wm8758_dai_ops,
+	.ops = &wm8758_dai_ops,
 	.symmetric_rates = 1,
 };
 
@@ -553,7 +553,7 @@ static int wmcodec_write(void* ctrl, const char* data, int len)
 		return -EIO;
 }
 
-static int iphone_wm8758_audio_probe(struct platform_device *pdev)
+static int wm8758_init(struct platform_device *pdev)
 {
 	int ret;
 	int i;
@@ -570,14 +570,14 @@ static int iphone_wm8758_audio_probe(struct platform_device *pdev)
 	codec->private_data = &priv;
 	codec->name = "wm8758";
 	codec->owner = THIS_MODULE;
-	codec->dai = &iphone_wm8758_dai;
+	codec->dai = &wm8758_dai;
 	codec->num_dai = 1;
 	codec->reg_cache_size = ARRAY_SIZE(priv.reg_cache);
 	codec->reg_cache = &priv.reg_cache;
 	codec->control_data = NULL;
 	codec->hw_write = wmcodec_write;
 
-	iphone_wm8758_dai.dev = codec->dev;
+	wm8758_dai.dev = codec->dev;
 
 	memcpy(codec->reg_cache, wm8978_reg, sizeof(wm8978_reg));
 
@@ -591,13 +591,6 @@ static int iphone_wm8758_audio_probe(struct platform_device *pdev)
 	if (ret != 0) {
 		dev_err(codec->dev, "Failed to register codec: %d\n", ret);
 		goto err;
-	}
-
-	ret = snd_soc_register_dai(&iphone_wm8758_dai);
-	if (ret != 0) {
-		dev_err(codec->dev, "Failed to register DAI: %d\n", ret);
-		snd_soc_unregister_codec(codec);
-		goto err_codec;
 	}
 
 	priv.bb_volume_cache[2] = 100;
@@ -687,17 +680,16 @@ err:
 	return ret;
 }
 
-static int iphone_wm8758_audio_remove(struct platform_device *pdev)
+static int wm8758_audio_remove(struct platform_device *pdev)
 {
 	struct snd_soc_codec *codec = &priv.codec;
 
-	snd_soc_unregister_dai(&iphone_wm8758_dai);
 	snd_soc_unregister_codec(codec);
 
 	return 0;
 }
 
-static int soc_codec_dev_iphone_probe(struct platform_device *pdev)
+static int wm8758_probe(struct platform_device *pdev)
 {
 	int ret;
 	struct snd_soc_codec *codec;
@@ -723,6 +715,8 @@ static int soc_codec_dev_iphone_probe(struct platform_device *pdev)
 		goto card_err;
 	}
 
+	wm8758_init(pdev);
+
 	return ret;
 
 card_err:
@@ -734,57 +728,29 @@ pcm_err:
 	return ret;
 }
 
-static int soc_codec_dev_iphone_remove(struct platform_device *pdev)
+static int wm8758_remove(struct platform_device *pdev)
 {
 	pr_debug("ENTER soc_codec_dev_iphone_remove\n");
 	return 0;
 }
 
-struct snd_soc_codec_device soc_codec_dev_iphone = {
-	.probe          = soc_codec_dev_iphone_probe,
-	.remove         = soc_codec_dev_iphone_remove,
+struct snd_soc_codec_device soc_codec_dev_wm8758 = {
+	.probe          = wm8758_probe,
+	.remove         = wm8758_remove,
 };
 
-static struct platform_driver iphone_wm8758_audio_driver = {
-	.probe = iphone_wm8758_audio_probe,
-	.remove = iphone_wm8758_audio_remove,
-	.suspend = NULL, /* optional but recommended */
-	.resume = NULL,   /* optional but recommended */
-	.driver = {
-		.owner = THIS_MODULE,
-		.name = "iphone-wm8758-audio",
-	},
-};
-
-static struct platform_device iphone_wm8758_audio_dev = {
-	.name = "iphone-wm8758-audio",
-	.id = -1,
-};
-
-static int __init iphone_wm8758_audio_init(void)
+static int __init wm8758_audio_init(void)
 {
-	int ret;
-
-	ret = platform_driver_register(&iphone_wm8758_audio_driver);
-
-	if (!ret) {
-		ret = platform_device_register(&iphone_wm8758_audio_dev);
-
-		if (ret != 0) {
-			platform_driver_unregister(&iphone_wm8758_audio_driver);
-		}
-	}
-	return ret;
+	return snd_soc_register_dai(&wm8758_dai);
 }
 
-static void __exit iphone_wm8758_audio_exit(void)
+static void __exit wm8758_audio_exit(void)
 {
-	platform_device_unregister(&iphone_wm8758_audio_dev);
-	platform_driver_unregister(&iphone_wm8758_audio_driver);
+	snd_soc_unregister_dai(&wm8758_dai);
 }
 
-module_init(iphone_wm8758_audio_init);
-module_exit(iphone_wm8758_audio_exit);
+module_init(wm8758_audio_init);
+module_exit(wm8758_audio_exit);
 
 MODULE_DESCRIPTION("iPhone WM8758 audio codec driver");
 MODULE_AUTHOR("Yiduo Wang");

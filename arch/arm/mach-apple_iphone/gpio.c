@@ -48,7 +48,7 @@ static struct irq_chip iphone_gpio_irq_chip = {
 static struct gpio_keys_button iphone_gpio_keys_table[] = {
 	{
 		.gpio = GPIO_BUTTONS_HOME,
-		.code = 229,
+		.code = 139,
 		.desc = "MENU",
 		.active_low = 0,
 		.wakeup = 0,
@@ -56,30 +56,13 @@ static struct gpio_keys_button iphone_gpio_keys_table[] = {
 	},
 	{
 		.gpio = GPIO_BUTTONS_HOLD,
-		.code = 158,
+		.code = 116,
 		.desc = "BACK",
 		.active_low = 0,
 		.wakeup = 0,
 		.debounce_interval = 20,
 	},
-	/* we'll map these to more useful keys until somebody comes up with a better solution */
 	{
-		.gpio = GPIO_BUTTONS_VOLUP,
-		.code = 61,
-		.desc = "CALL",
-		.active_low = 1,
-		.wakeup = 0,
-		.debounce_interval = 20,
-	},
-	{
-		.gpio = GPIO_BUTTONS_VOLDOWN,
-		.code = 102,
-		.desc = "CALL",
-		.active_low = 1,
-		.wakeup = 0,
-		.debounce_interval = 20,
-	},
-/*	{
 		.gpio = GPIO_BUTTONS_VOLUP,
 		.code = 115,
 		.desc = "VOLUME_UP",
@@ -94,7 +77,7 @@ static struct gpio_keys_button iphone_gpio_keys_table[] = {
 		.active_low = 1,
 		.wakeup = 0,
 		.debounce_interval = 20,
-	},*/
+	},
 };
 
 static struct gpio_keys_platform_data iphone_gpio_keys_data = {
