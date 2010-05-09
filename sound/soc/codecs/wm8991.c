@@ -140,6 +140,7 @@ static inline void wm8991_write_reg_cache(struct snd_soc_codec *codec,
 static int wm8991_write(struct snd_soc_codec *codec, unsigned int reg,
 	unsigned int value)
 {
+	int ret = 0;
 	u8 data[3];
 
 	data[0] = reg & 0xFF;
@@ -147,10 +148,14 @@ static int wm8991_write(struct snd_soc_codec *codec, unsigned int reg,
 	data[2] = value & 0xFF;
 
 	wm8991_write_reg_cache(codec, reg, value);
-	if (codec->hw_write(codec->control_data, data, 3) == 2)
-		return 0;
-	else
+	ret = codec->hw_write(codec->control_data, data, 3);
+	if(ret != 3)
+	{
+		printk("WM8991 i2c returned %d!\n", ret);
 		return -EIO;
+	}
+
+	return 0;
 }
 
 #define wm8991_reset(c) wm8991_write(c, WM8991_RESET, 0)
@@ -677,7 +682,7 @@ SOC_DAPM_SINGLE("ROPMIX Right Mixer PGA Switch", WM8991_LINE_MIXER2,
 
 /* OUT3MIX */
 static const struct snd_kcontrol_new wm8991_dapm_out3mix_controls[] = {
-SOC_DAPM_SINGLE("OUT3MIX LIN4/RXP Bypass Switch", WM8991_OUT3_4_MIXER,
+SOC_DAPM_SINGLE("OUT3MIX LIN4/RXN Bypass Switch", WM8991_OUT3_4_MIXER,
 	WM8991_LI4O3_BIT, 1, 0),
 SOC_DAPM_SINGLE("OUT3MIX Left Out PGA Switch", WM8991_OUT3_4_MIXER,
 	WM8991_LPGAO3_BIT, 1, 0),
@@ -870,7 +875,7 @@ static const struct snd_soc_dapm_route audio_map[] = {
 	{"LIN12 PGA", "LIN2 Switch", "LIN2"},
 	/* LIN34 PGA */
 	{"LIN34 PGA", "LIN3 Switch", "LIN3"},
-	{"LIN34 PGA", "LIN4 Switch", "LIN4"},
+	{"LIN34 PGA", "LIN4 Switch", "LIN4/RXN"},
 	/* INMIXL */
 	{"INMIXL", "Record Left Volume", "LOMIX"},
 	{"INMIXL", "LIN2 Volume", "LIN2"},
@@ -878,8 +883,8 @@ static const struct snd_soc_dapm_route audio_map[] = {
 	{"INMIXL", "LINPGA34 Switch", "LIN34 PGA"},
 	/* AILNMUX */
 	{"AILNMUX", "INMIXL Mix", "INMIXL"},
-	{"AILNMUX", "DIFFINL Mix", "LIN12PGA"},
-	{"AILNMUX", "DIFFINL Mix", "LIN34PGA"},
+	{"AILNMUX", "DIFFINL Mix", "LIN12 PGA"},
+	{"AILNMUX", "DIFFINL Mix", "LIN34 PGA"},
 	{"AILNMUX", "RXVOICE Mix", "LIN4/RXN"},
 	{"AILNMUX", "RXVOICE Mix", "RIN4/RXP"},
 	/* ADC */
@@ -890,7 +895,7 @@ static const struct snd_soc_dapm_route audio_map[] = {
 	{"RIN12 PGA", "RIN2 Switch", "RIN2"},
 	/* RIN34 PGA */
 	{"RIN34 PGA", "RIN3 Switch", "RIN3"},
-	{"RIN34 PGA", "RIN4 Switch", "RIN4"},
+	{"RIN34 PGA", "RIN4 Switch", "RIN4/RXP"},
 	/* INMIXL */
 	{"INMIXR", "Record Right Volume", "ROMIX"},
 	{"INMIXR", "RIN2 Volume", "RIN2"},
@@ -898,9 +903,9 @@ static const struct snd_soc_dapm_route audio_map[] = {
 	{"INMIXR", "RINPGA34 Switch", "RIN34 PGA"},
 	/* AIRNMUX */
 	{"AIRNMUX", "INMIXR Mix", "INMIXR"},
-	{"AIRNMUX", "DIFFINR Mix", "RIN12PGA"},
-	{"AIRNMUX", "DIFFINR Mix", "RIN34PGA"},
-	{"AIRNMUX", "RXVOICE Mix", "RIN4/RXN"},
+	{"AIRNMUX", "DIFFINR Mix", "RIN12 PGA"},
+	{"AIRNMUX", "DIFFINR Mix", "RIN34 PGA"},
+	{"AIRNMUX", "RXVOICE Mix", "LIN4/RXN"},
 	{"AIRNMUX", "RXVOICE Mix", "RIN4/RXP"},
 	/* ADC */
 	{"Right ADC", NULL, "AIRNMUX"},
@@ -910,8 +915,8 @@ static const struct snd_soc_dapm_route audio_map[] = {
 	{"LOMIX", "LOMIX LIN3 Bypass Switch", "LIN3"},
 	{"LOMIX", "LOMIX LIN12 PGA Bypass Switch", "LIN12 PGA"},
 	{"LOMIX", "LOMIX RIN12 PGA Bypass Switch", "RIN12 PGA"},
-	{"LOMIX", "LOMIX Right ADC Bypass Switch", "AINRMUX"},
-	{"LOMIX", "LOMIX Left ADC Bypass Switch", "AINLMUX"},
+	{"LOMIX", "LOMIX Right ADC Bypass Switch", "AIRNMUX"},
+	{"LOMIX", "LOMIX Left ADC Bypass Switch", "AILNMUX"},
 	{"LOMIX", "LOMIX Left DAC Switch", "Left DAC"},
 
 	/* ROMIX */
@@ -919,19 +924,19 @@ static const struct snd_soc_dapm_route audio_map[] = {
 	{"ROMIX", "ROMIX LIN3 Bypass Switch", "LIN3"},
 	{"ROMIX", "ROMIX LIN12 PGA Bypass Switch", "LIN12 PGA"},
 	{"ROMIX", "ROMIX RIN12 PGA Bypass Switch", "RIN12 PGA"},
-	{"ROMIX", "ROMIX Right ADC Bypass Switch", "AINRMUX"},
-	{"ROMIX", "ROMIX Left ADC Bypass Switch", "AINLMUX"},
+	{"ROMIX", "ROMIX Right ADC Bypass Switch", "AIRNMUX"},
+	{"ROMIX", "ROMIX Left ADC Bypass Switch", "AILNMUX"},
 	{"ROMIX", "ROMIX Right DAC Switch", "Right DAC"},
 
 	/* SPKMIX */
 	{"SPKMIX", "SPKMIX LIN2 Bypass Switch", "LIN2"},
 	{"SPKMIX", "SPKMIX RIN2 Bypass Switch", "RIN2"},
-	{"SPKMIX", "SPKMIX LADC Bypass Switch", "AINLMUX"},
-	{"SPKMIX", "SPKMIX RADC Bypass Switch", "AINRMUX"},
+	{"SPKMIX", "SPKMIX LADC Bypass Switch", "AILNMUX"},
+	{"SPKMIX", "SPKMIX RADC Bypass Switch", "AIRNMUX"},
 	{"SPKMIX", "SPKMIX Left Mixer PGA Switch", "LOPGA"},
 	{"SPKMIX", "SPKMIX Right Mixer PGA Switch", "ROPGA"},
 	{"SPKMIX", "SPKMIX Right DAC Switch", "Right DAC"},
-	{"SPKMIX", "SPKMIX Left DAC Switch", "Right DAC"},
+	{"SPKMIX", "SPKMIX Left DAC Switch", "Left DAC"},
 
 	/* LONMIX */
 	{"LONMIX", "LONMIX Left Mixer PGA Switch", "LOPGA"},
@@ -944,7 +949,7 @@ static const struct snd_soc_dapm_route audio_map[] = {
 	{"LOPMIX", "LOPMIX Left Mixer PGA Switch", "LOPGA"},
 
 	/* OUT3MIX */
-	{"OUT3MIX", "OUT3MIX LIN4/RXP Bypass Switch", "LIN4/RXP"},
+	{"OUT3MIX", "OUT3MIX LIN4/RXN Bypass Switch", "LIN4/RXN"},
 	{"OUT3MIX", "OUT3MIX Left Out PGA Switch", "LOPGA"},
 
 	/* OUT4MIX */
@@ -971,7 +976,7 @@ static const struct snd_soc_dapm_route audio_map[] = {
 	/* Output Pins */
 	{"LON", NULL, "LONMIX"},
 	{"LOP", NULL, "LOPMIX"},
-	{"OUT", NULL, "OUT3MIX"},
+	{"OUT3", NULL, "OUT3MIX"},
 	{"LOUT", NULL, "LOUT PGA"},
 	{"SPKN", NULL, "SPKMIX"},
 	{"ROUT", NULL, "ROUT PGA"},
@@ -1063,8 +1068,23 @@ static int wm8991_set_dai_pll(struct snd_soc_dai *codec_dai,
 			(pll_div.div2 ? WM8991_PRESCALE : 0));
 		wm8991_write(codec, WM8991_PLL2, (u8)(pll_div.k>>8));
 		wm8991_write(codec, WM8991_PLL3, (u8)(pll_div.k & 0xFF));
-	} else {
+	} else if(freq_out) {
 		/* Turn on PLL */
+		reg = wm8991_read_reg_cache(codec, WM8991_POWER_MANAGEMENT_2);
+		reg |= WM8991_PLL_ENA;
+		wm8991_write(codec, WM8991_POWER_MANAGEMENT_2, reg);
+
+		/* sysclk comes from PLL */
+		reg = wm8991_read_reg_cache(codec, WM8991_CLOCKING_2);
+		wm8991_write(codec, WM8991_CLOCKING_2, reg | WM8991_SYSCLK_SRC);
+
+		/* set up N , fractional mode and pre-divisor if neccessary */
+		wm8991_write(codec, WM8991_PLL1, freq_out >> 16 | WM8991_SDM);
+		wm8991_write(codec, WM8991_PLL2, (u8)(freq_out>>8));
+		wm8991_write(codec, WM8991_PLL3, (u8)(freq_out & 0xFF));
+	
+	} else {
+		/* Turn off PLL */
 		reg = wm8991_read_reg_cache(codec, WM8991_POWER_MANAGEMENT_2);
 		reg &= ~WM8991_PLL_ENA;
 		wm8991_write(codec, WM8991_POWER_MANAGEMENT_2, reg);
@@ -1325,6 +1345,12 @@ static int wm8991_probe(struct platform_device *pdev)
 	snd_soc_add_controls(codec, wm8991_snd_controls,
 			     ARRAY_SIZE(wm8991_snd_controls));
 	wm8991_add_widgets(codec);
+
+	ret = snd_soc_init_card(socdev);
+	if (ret < 0) {
+		printk(KERN_ERR "wm8991: failed to register card\n");
+		goto pcm_err;	
+	}
 
 	return 0;
 

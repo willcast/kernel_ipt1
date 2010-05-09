@@ -245,21 +245,25 @@ static void do_i2c(I2CInfo* i2c) {
 static int iphone_i2c_xfer(struct i2c_adapter *adapter,
 			      struct i2c_msg *msgs, int num)
 {
+	int ret = 0;
 	int bus, send_stop, i;
 	struct i2c_msg *msg;
 	for(i=0; i<num; i++)
 	{
 		msg = &msgs[i];
-
 		send_stop = (i == num-1) || (msgs[i+1].addr != msg->addr);
-		
 		bus = (adapter == &iphone_i2c1) ? 1 : 0;
+
 		if(msg->flags & I2C_M_RD)
-			iphone_i2c_recv(bus, msg->addr, send_stop, msg->buf, msg->len);
+			ret = iphone_i2c_recv(bus, msg->addr, send_stop, msg->buf, msg->len);
 		else			
-			iphone_i2c_send(bus, msg->addr, send_stop, msg->buf, msg->len);
+			ret = iphone_i2c_send(bus, msg->addr, send_stop, msg->buf, msg->len);
+
+		if(ret != I2CNoError)
+			return -EIO;
 	}
-	return 0;
+
+	return num;
 }
 
 /*	TEMPORARY LEGACY SUPPORT	*/
