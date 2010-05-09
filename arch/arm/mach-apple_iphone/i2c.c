@@ -154,31 +154,25 @@ static void do_i2c(I2CInfo* i2c) {
 		proceed = 0;
 		switch(i2c->state) {
 			case I2CSetup:
-				if(i2c->send_stop)
-					__raw_writel(i2c->iiccon_settings | IICCON_ACKGEN, i2c->register_IICCON);
-				else
-					__raw_writel(i2c->iiccon_settings, i2c->register_IICCON);
-
-				__raw_writel(i2c->address, i2c->register_IICDS);
+				__raw_writel(i2c->iiccon_settings | IICCON_ACKGEN, i2c->register_IICCON);
 				i2c->operation_result = OPERATION_SEND;
 				if(i2c->is_write) {
+					__raw_writel(i2c->address & ~1, i2c->register_IICDS);
 					i2c->current_iicstat =
 						(IICSTAT_MODE_MASTERTX << IICSTAT_MODE_SHIFT)
 						| (IICSTAT_STARTSTOPGEN_START << IICSTAT_STARTSTOPGEN_SHIFT)
 						| (1 << IICSTAT_DATAOUTPUT_ENABLE_SHIFT);
+					i2c->state = I2CTx;
 				} else {
+					__raw_writel(i2c->address | 1, i2c->register_IICDS);
 					i2c->current_iicstat =
 						(IICSTAT_MODE_MASTERRX << IICSTAT_MODE_SHIFT)
 						| (IICSTAT_STARTSTOPGEN_START << IICSTAT_STARTSTOPGEN_SHIFT)
 						| (1 << IICSTAT_DATAOUTPUT_ENABLE_SHIFT);
+					i2c->state = I2CRxSetup;
 				}
 				__raw_writel(i2c->current_iicstat, i2c->register_IICSTAT);
 				i2c->cursor = 0;
-				if(i2c->is_write) {
-					i2c->state = I2CTx;
-				} else {
-					i2c->state = I2CRxSetup;
-				}
 				break;
 			case I2CTx:
 				if((__raw_readl(i2c->register_IICSTAT) & IICSTAT_LASTRECEIVEDBIT) == 0) {
@@ -186,12 +180,7 @@ static void do_i2c(I2CInfo* i2c) {
 						// need to send more from the register list
 						i2c->operation_result = OPERATION_SEND;
 						__raw_writel(i2c->buffer[i2c->cursor++], i2c->register_IICDS);
-
-						if(i2c->send_stop)
-							__raw_writel(i2c->iiccon_settings | IICCON_INTPENDING | IICCON_ACKGEN, i2c->register_IICCON);
-						else
-							__raw_writel(i2c->iiccon_settings | IICCON_INTPENDING, i2c->register_IICCON);
-
+						__raw_writel(i2c->iiccon_settings | IICCON_INTPENDING | IICCON_ACKGEN, i2c->register_IICCON);
 					} else {
 						i2c->state = I2CFinish;
 						proceed = 1;
@@ -236,7 +225,7 @@ static void do_i2c(I2CInfo* i2c) {
 						i2c->current_iicstat &= ~(IICSTAT_MODE_SLAVETX << IICSTAT_MODE_SHIFT);
 					}
 				} else {
-					i2c->current_iicstat &= (IICSTAT_MODE_SLAVETX << IICSTAT_MODE_SHIFT) | (IICSTAT_STARTSTOPGEN_MASK << IICSTAT_STARTSTOPGEN_SHIFT);
+					i2c->current_iicstat = (IICSTAT_MODE_MASTERRX << IICSTAT_MODE_SHIFT) | (IICSTAT_STARTSTOPGEN_MASK << IICSTAT_STARTSTOPGEN_SHIFT);
 				}
 
 				__raw_writel(i2c->current_iicstat, i2c->register_IICSTAT);
@@ -279,12 +268,6 @@ static int iphone_i2c_xfer(struct i2c_adapter *adapter,
 	for(i=0; i<num; i++)
 	{
 		msg = &msgs[i];
-		
-		// Not last message and is same slave address as next
-		/*if(i != num-1)
-			send_stop = (msg->addr == msgs[i+1].addr);
-		else
-			send_stop = 0;*/
 
 		send_stop = (i == num-1) || (msgs[i+1].addr != msg->addr);
 		
@@ -298,7 +281,7 @@ static int iphone_i2c_xfer(struct i2c_adapter *adapter,
 }
 
 /*	TEMPORARY LEGACY SUPPORT	*/
-
+/*
 I2CError iphone_i2c_rx(int bus, int iicaddr, const uint8_t* registers, int num_regs, void* buffer, int len)
 {
          I2CError ret;
@@ -348,7 +331,7 @@ static const struct i2c_algorithm iphone_i2c_algorithm = {
 static struct i2c_adapter iphone_i2c_adapter = {
 	.id 		= 0,
 	.owner		= THIS_MODULE,
-	.class      = 0, 
+	.class    	= 0, 
 	.algo		= &iphone_i2c_algorithm,
 	.nr			= 0,
 };
@@ -369,7 +352,8 @@ static int iphone_i2c_archinit(void)
 arch_initcall(iphone_i2c_archinit);
 
 static int __init iphone_i2c_init(void)
-{	
+{
+	
 	printk("iphone-i2c: going to setup/init now!\n");
 	return i2c_add_numbered_adapter(&iphone_i2c_adapter);
 }
@@ -403,6 +387,6 @@ struct platform_device iphone_i2c = {
 };
 
 MODULE_AUTHOR("Fredrik Gustafsson <frgustaf@kth.se>");
-MODULE_DESCRIPTION("iPhone iphone_i2c i2c adapter");
+MODULE_DESCRIPTION("iPhone i2c adapter");
 MODULE_LICENSE("GPL");
 

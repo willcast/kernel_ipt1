@@ -85,6 +85,8 @@ static int __init iphone_sound_init(void)
 {
 	int ret = 0;
 
+	printk("iphone-sound: Ah, well HELLO! I just initing myself, thought I'd tell you\n");
+
 	snd_dev = platform_device_alloc("soc-audio", -1);
 	if (!snd_dev) {
 		printk("failed to alloc soc-audio device\n");
@@ -99,7 +101,7 @@ static int __init iphone_sound_init(void)
 	if (ret) {
 
 		printk("failed to add soc-audio dev\n");
-		return ret;
+		platform_device_put(snd_dev);
 	}
 
 	return ret;

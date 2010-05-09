@@ -5,7 +5,7 @@
 #include <sound/soc.h>
 #include <sound/soc-dapm.h>
 #include <sound/initval.h>
-#include <mach/iphone-i2c.h>
+#include <linux/i2c.h>
 
 /*
  *
@@ -517,7 +517,7 @@ static int iphone_wm8758_mute(struct snd_soc_dai *dai, int mute)
 	return 0;
 }
 
-static struct snd_soc_dai_ops wm8758_dai_ops = {
+static struct snd_soc_dai_ops iphone_wm8758_dai_ops = {
 	.startup = iphone_wm8758_pcm_startup,
 	.hw_params = iphone_wm8758_pcm_hw_params,
 	.set_fmt = iphone_wm8758_set_dai_fmt,
@@ -525,7 +525,7 @@ static struct snd_soc_dai_ops wm8758_dai_ops = {
 	.digital_mute = iphone_wm8758_mute,
 };
 
-struct snd_soc_dai wm8758_dai = {
+struct snd_soc_dai iphone_wm8758_dai = {
 	.name = "wm8758",
 	.playback = {
 		.stream_name = "Playback",
@@ -541,19 +541,12 @@ struct snd_soc_dai wm8758_dai = {
 		.rates = SNDRV_PCM_RATE_44100,
 		.formats = SNDRV_PCM_FMTBIT_S16_LE,
 	 },
-	.ops = &wm8758_dai_ops,
+	.ops = &iphone_wm8758_dai_ops,
 	.symmetric_rates = 1,
 };
 
-static int wmcodec_write(void* ctrl, const char* data, int len)
-{
-	if(iphone_i2c_tx(WMCODEC_I2C, 0x34, data, len) == 0)
-		return len;
-	else
-		return -EIO;
-}
 
-static int wm8758_init(struct platform_device *pdev)
+static int iphone_wm8758_register(void)
 {
 	int ret;
 	int i;
@@ -566,22 +559,19 @@ static int wm8758_init(struct platform_device *pdev)
 	INIT_LIST_HEAD(&codec->dapm_widgets);
 	INIT_LIST_HEAD(&codec->dapm_paths);
 
-	codec->dev = &pdev->dev;
 	codec->private_data = &priv;
 	codec->name = "wm8758";
 	codec->owner = THIS_MODULE;
-	codec->dai = &wm8758_dai;
+	codec->dai = &iphone_wm8758_dai;
 	codec->num_dai = 1;
 	codec->reg_cache_size = ARRAY_SIZE(priv.reg_cache);
 	codec->reg_cache = &priv.reg_cache;
-	codec->control_data = NULL;
-	codec->hw_write = wmcodec_write;
 
-	wm8758_dai.dev = codec->dev;
+	iphone_wm8758_dai.dev = codec->dev;
 
 	memcpy(codec->reg_cache, wm8978_reg, sizeof(wm8978_reg));
 
-	ret = snd_soc_codec_set_cache_io(codec, 7, 9, SND_SOC_CUSTOM);
+	ret = snd_soc_codec_set_cache_io(codec, 7, 9, SND_SOC_I2C);
 	if (ret < 0) {
 		dev_err(codec->dev, "Failed to set cache I/O: %d\n", ret);
 		goto err;
@@ -591,6 +581,13 @@ static int wm8758_init(struct platform_device *pdev)
 	if (ret != 0) {
 		dev_err(codec->dev, "Failed to register codec: %d\n", ret);
 		goto err;
+	}
+
+	ret = snd_soc_register_dai(&iphone_wm8758_dai);
+	if (ret != 0) {
+		dev_err(codec->dev, "Failed to register DAI: %d\n", ret);
+		snd_soc_unregister_codec(codec);
+		goto err_codec;
 	}
 
 	priv.bb_volume_cache[2] = 100;
@@ -680,16 +677,17 @@ err:
 	return ret;
 }
 
-static int wm8758_audio_remove(struct platform_device *pdev)
+static int iphone_wm8758_unregister(void)
 {
 	struct snd_soc_codec *codec = &priv.codec;
 
+	snd_soc_unregister_dai(&iphone_wm8758_dai);
 	snd_soc_unregister_codec(codec);
 
 	return 0;
 }
 
-static int wm8758_probe(struct platform_device *pdev)
+static int soc_codec_dev_iphone_probe(struct platform_device *pdev)
 {
 	int ret;
 	struct snd_soc_codec *codec;
@@ -715,8 +713,6 @@ static int wm8758_probe(struct platform_device *pdev)
 		goto card_err;
 	}
 
-	wm8758_init(pdev);
-
 	return ret;
 
 card_err:
@@ -728,30 +724,76 @@ pcm_err:
 	return ret;
 }
 
-static int wm8758_remove(struct platform_device *pdev)
+static int soc_codec_dev_iphone_remove(struct platform_device *pdev)
 {
 	pr_debug("ENTER soc_codec_dev_iphone_remove\n");
 	return 0;
 }
 
-struct snd_soc_codec_device soc_codec_dev_wm8758 = {
-	.probe          = wm8758_probe,
-	.remove         = wm8758_remove,
+struct snd_soc_codec_device soc_codec_dev_iphone = {
+	.probe          = soc_codec_dev_iphone_probe,
+	.remove         = soc_codec_dev_iphone_remove,
 };
 
-static int __init wm8758_audio_init(void)
+static int wm8758_i2c_probe(struct i2c_client *i2c,
+			    const struct i2c_device_id *id)
 {
-	return snd_soc_register_dai(&wm8758_dai);
+	struct iphone_wm8758_priv *wm8758;
+	struct snd_soc_codec *codec;
+
+	wm8758 = &priv;
+
+	codec = &wm8758->codec;
+
+	i2c_set_clientdata(i2c, wm8758);
+	codec->control_data = i2c;
+
+	codec->dev = &i2c->dev;
+
+	return iphone_wm8758_register();
 }
 
-static void __exit wm8758_audio_exit(void)
+static int wm8758_i2c_remove(struct i2c_client *client)
 {
-	snd_soc_unregister_dai(&wm8758_dai);
+	struct wm8758_priv *wm8758 = i2c_get_clientdata(client);
+	iphone_wm8758_unregister();
+	return 0;
 }
 
-module_init(wm8758_audio_init);
-module_exit(wm8758_audio_exit);
+static const struct i2c_device_id wm8758_i2c_id[] = {
+	{ "wm8758", 0 },
+	{ }
+};
+MODULE_DEVICE_TABLE(i2c, wm8758_i2c_id);
 
-MODULE_DESCRIPTION("iPhone WM8758 audio codec driver");
-MODULE_AUTHOR("Yiduo Wang");
+static struct i2c_driver wm8758_i2c_driver = {
+	.driver = {
+		.name = "wm8758",
+		.owner = THIS_MODULE,
+	},
+	.probe = wm8758_i2c_probe,
+	.remove = wm8758_i2c_remove,
+	.id_table = wm8758_i2c_id,
+};
+
+static int __init wm8758_modinit(void)
+{
+	int ret;
+
+	ret = i2c_add_driver(&wm8758_i2c_driver);
+	if (ret != 0)
+		pr_err("WM8758: Unable to register I2C driver: %d\n", ret);
+	return ret;
+}
+module_init(wm8758_modinit);
+
+static void __exit wm8758_exit(void)
+{
+	i2c_del_driver(&wm8758_i2c_driver);
+}
+module_exit(wm8758_exit);
+
+
+MODULE_DESCRIPTION("ASoC WM8758 driver");
+MODULE_AUTHOR("Mark Brown <broonie@opensource.wolfsonmicro.com>");
 MODULE_LICENSE("GPL");
