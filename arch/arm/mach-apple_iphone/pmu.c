@@ -4,14 +4,15 @@
 #include <linux/platform_device.h>
 #include <linux/rtc.h>
 #include <linux/bcd.h>
+#include <linux/i2c.h>
 #include <mach/pmu.h>
 #include <linux/i2c.h>
 #include <mach/gpio.h>
 
-typedef struct PMURegisterData {
+/*typedef struct PMURegisterData {
 	uint8_t reg;
 	uint8_t data;
-} PMURegisterData;
+} PMURegisterData;*/
 
 
 static struct i2c_client *pmu_i2c;
@@ -184,7 +185,7 @@ int iphone_pmu_get_battery_voltage(void)
 	return query_adc(PMU_ADCC1_ADCINMUX_BATSNS_DIV << PMU_ADCC1_ADCINMUX_SHIFT);
 }
 
-/*static int iphone_pmu_write_regs(const PMURegisterData* regs, int num) {
+int iphone_pmu_write_regs(const PMURegisterData* regs, int num) {
 	int i;
 	for(i = 0; i < num; i++) {
 		iphone_pmu_write_reg(regs[i].reg, regs[i].data, 1);
@@ -198,8 +199,12 @@ static void iphone_pmu_write_oocshdwn(int data) {
 	uint8_t discardData[5];
 	uint8_t poweroffData[] = {7, 0xAA, 0xFC, 0x0, 0x0, 0x0};
 	registers[0] = 2;
-	iphone_i2c_rx(PMU_I2C_BUS, PMU_GETADDR, registers, sizeof(registers), discardData, sizeof(data));
-	iphone_i2c_tx(PMU_I2C_BUS, PMU_SETADDR, poweroffData, sizeof(poweroffData));
+
+	i2c_master_send(pmu_i2c, registers, sizeof(registers));
+	i2c_master_recv(pmu_i2c, discardData, sizeof(data));
+	i2c_master_send(pmu_i2c, poweroffData, sizeof(poweroffData));
+	//iphone_i2c_rx(PMU_I2C_BUS, PMU_GETADDR, registers, sizeof(registers), discardData, sizeof(data));
+	//iphone_i2c_tx(PMU_I2C_BUS, PMU_SETADDR, poweroffData, sizeof(poweroffData));
 	iphone_pmu_write_reg(PMU_OOCSHDWN, data, 0);
 	while(1) {
 		udelay(100000);
@@ -210,7 +215,7 @@ static void iphone_pmu_poweroff(void) {
 	//lcd_shutdown();
 	iphone_pmu_write_oocshdwn(PMU_OOCSHDWN_GOSTBY);
 }
-*/
+
 
 /*static int iphone_pmu_get_dayofweek(void) {
 	return iphone_pmu_get_reg(PMU_RTCWD) & PMU_RTCWD_MASK;

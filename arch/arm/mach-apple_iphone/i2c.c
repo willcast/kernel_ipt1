@@ -30,6 +30,9 @@ static void init_i2c(I2CInfo* i2c, u32 frequency);
 static I2CError iphone_i2c_readwrite(I2CInfo* i2c);
 static void do_i2c(I2CInfo* i2c);
 
+static struct i2c_adapter iphone_i2c0;
+static struct i2c_adapter iphone_i2c1;
+
 static int initialized = 0;
 
 static int iphone_i2c_setup(void) {
@@ -143,7 +146,7 @@ static I2CError iphone_i2c_readwrite(I2CInfo* i2c) {
 	
 	if(i2c->error_code != I2CNoError)
 	{
-		printk("I2C %s Command Failed!", i2c->is_write ? "Write" : "Read");
+		printk("I2C %s Command Failed!\n", i2c->is_write ? "Write" : "Read");
 	}
 	return i2c->error_code;
 }
@@ -239,27 +242,6 @@ static void do_i2c(I2CInfo* i2c) {
 	}
 }
 
-
-/*	KERNEL DRIVER WRAPPER	*/
-
-static int get_bus(u16 addr)
-{
-	/* Make the table device-specific! */
-	/* Revisit: Add to the table! (3g ALS is 0x88!)*/
-	switch(addr)
-	{
-	case 0x34:	// wm8758 (2G)
-	case 0xe6:	// PMU 2G
-	case 0xe7:	// PMU 2G
-	case 0x92:	// ALS 2G
-		return 0;
-	case 0x78:  // Camera 2G
-		return 1;
-	}
-	return 0;
-}
-
-
 static int iphone_i2c_xfer(struct i2c_adapter *adapter,
 			      struct i2c_msg *msgs, int num)
 {
@@ -271,7 +253,7 @@ static int iphone_i2c_xfer(struct i2c_adapter *adapter,
 
 		send_stop = (i == num-1) || (msgs[i+1].addr != msg->addr);
 		
-		bus = get_bus(msg->addr);
+		bus = (adapter == &iphone_i2c1) ? 1 : 0;
 		if(msg->flags & I2C_M_RD)
 			iphone_i2c_recv(bus, msg->addr, send_stop, msg->buf, msg->len);
 		else			
@@ -281,7 +263,7 @@ static int iphone_i2c_xfer(struct i2c_adapter *adapter,
 }
 
 /*	TEMPORARY LEGACY SUPPORT	*/
-/*
+
 I2CError iphone_i2c_rx(int bus, int iicaddr, const uint8_t* registers, int num_regs, void* buffer, int len)
 {
          I2CError ret;
@@ -328,39 +310,48 @@ static const struct i2c_algorithm iphone_i2c_algorithm = {
 	.functionality		= iphone_i2c_func,
 };
 
-static struct i2c_adapter iphone_i2c_adapter = {
+static struct i2c_adapter iphone_i2c0 = {
 	.id 		= 0,
 	.owner		= THIS_MODULE,
 	.class    	= 0, 
 	.algo		= &iphone_i2c_algorithm,
-	.nr			= 0,
 };
 
-static struct i2c_board_info iphone_i2c_devices[] =
-{
-	{
-		I2C_BOARD_INFO("wm8991", 0x36),
-	},
+static struct i2c_adapter iphone_i2c1 = {
+	.id 		= 1,
+	.owner		= THIS_MODULE,
+	.class    	= 0, 
+	.algo		= &iphone_i2c_algorithm,
 };
-
-static int iphone_i2c_archinit(void)
-{
-	iphone_i2c_setup();
-	i2c_register_board_info(0, iphone_i2c_devices, ARRAY_SIZE(iphone_i2c_devices));
-	return 0;
-}
-arch_initcall(iphone_i2c_archinit);
 
 static int __init iphone_i2c_init(void)
 {
-	
-	printk("iphone-i2c: going to setup/init now!\n");
-	return i2c_add_numbered_adapter(&iphone_i2c_adapter);
+	int ret = 0;
+
+	iphone_i2c_setup();	
+	printk("iphone-i2c: Initialising I2C busses!\n");
+
+	ret = i2c_add_numbered_adapter(&iphone_i2c0);
+	if(ret)
+	{
+		printk("iphone-i2c: Failed to add I2C Bus #0.\n");
+		return ret;
+	}
+
+	ret = i2c_add_numbered_adapter(&iphone_i2c1);
+	if(ret)
+	{
+		printk("iphone-i2c: Failed to add I2C Bus #1.\n");
+		return ret;
+	}
+
+	return ret;
 }
 
 static void __exit iphone_i2c_exit(void)
 {
-	i2c_del_adapter(&iphone_i2c_adapter);
+	i2c_del_adapter(&iphone_i2c0);
+	i2c_del_adapter(&iphone_i2c1);
 }
 
 module_init(iphone_i2c_init);

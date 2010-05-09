@@ -30,7 +30,7 @@ static struct snd_soc_dai_link iphone_dai_links[] = {
 		.name           = "WM8758",
 		.stream_name    = "WM8758",
 		.cpu_dai        = &iphone_i2s_wm8758_dai,
-		.codec_dai      = &wm8758_dai,
+		.codec_dai      = &iphone_wm8758_dai,
 		//.init           = iphone_soc_to_wm8758_init,
 	},
 #endif
@@ -84,8 +84,6 @@ static struct platform_device *snd_dev;
 static int __init iphone_sound_init(void)
 {
 	int ret = 0;
-
-	printk("iphone-sound: Ah, well HELLO! I just initing myself, thought I'd tell you\n");
 
 	snd_dev = platform_device_alloc("soc-audio", -1);
 	if (!snd_dev) {
