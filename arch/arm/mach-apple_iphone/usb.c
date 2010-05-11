@@ -21,6 +21,9 @@
 #include <linux/kernel.h>
 #include <linux/string.h>
 #include <linux/platform_device.h>
+#ifdef CONFIG_USB_ANDROID
+#include <linux/usb/android_composite.h>
+#endif
 
 #include <mach/map.h>
 
@@ -46,3 +49,103 @@ struct platform_device s3c_device_usb_hsotg = {
 	.resource	= s3c_usb_hsotg_resources,
 };
 
+#ifdef CONFIG_USB_ANDROID
+char *android_usb_functions[] = {
+#ifdef CONFIG_ANDROID_USB_ADB
+	"adb",
+#endif
+#ifdef CONFIG_ANDROID_USB_ACM
+	"acm",
+#endif
+#ifdef CONFIG_ANDROID_USB_MASS_STORAGE
+	"usb_mass_storage",
+#endif
+#ifdef CONFIG_ANDROID_RNDIS
+	"rndis",
+#endif
+};
+
+static struct android_usb_product android_products[] = {
+	{
+		.product_id	= 0x1234,
+		.num_functions	= ARRAY_SIZE(android_usb_functions),
+		.functions	= android_usb_functions,
+	},
+};
+
+struct android_usb_platform_data android_usb_config = {
+#ifdef CONFIG_IPHONE_3G
+	.product_name		= "iPhone3G",
+#endif
+#ifdef CONFIG_IPHONE_2G
+	.product_name		= "iPhone2G",
+#endif
+
+	//.vendor_id			= TODO,
+	.product_id			= 0x1234,
+	.manufacturer_name	= "Apple",
+	.serial_number		= "0123456789", // TODO: Do we need to bother with this?
+
+	.version			= 0x0100,
+
+	.products			= android_products,
+	.num_products		= ARRAY_SIZE(android_products),
+
+	.functions			= android_usb_functions,
+	.num_functions		= ARRAY_SIZE(android_usb_functions),
+};
+
+struct platform_device android_usb = {
+	.name			= "android_usb",
+	.dev			= {
+		.platform_data = &android_usb_config,
+	}
+};
+
+struct usb_mass_storage_platform_data android_usb_storage_config = {
+	.vendor		= "Apple",
+
+#ifdef CONFIG_IPHONE_3G
+	.product	= "iPhone3G",
+#endif
+
+#ifdef CONFIG_IPHONE_2G
+	.product	= "iPhone2G",
+#endif
+
+	.release	= 1,
+
+	.nluns		= 1, // TODO: What the hell does this number mean?
+};
+
+struct platform_device android_usb_storage = {
+	.name	= "usb_mass_storage",
+	.dev	= {
+		.platform_data = &android_usb_storage_config,
+	}
+};
+
+struct usb_ether_platform_data android_usb_ether_config = {
+	.vendorDescr	= "Apple",
+	//.vendorID		= TODO,
+};
+
+struct platform_device android_usb_ether = {
+	.name			= "rndis",
+	.dev			= {
+		.platform_data = &android_usb_ether_config,
+	}
+};
+#endif
+
+
+void init_iphone_usb(void)
+{
+	platform_device_register(&s3c_device_usb_hsotg);
+#ifdef CONFIG_USB_ANDROID
+	platform_device_register(&android_usb_ether);
+	platform_device_register(&android_usb_storage);
+	platform_device_register(&android_usb);
+#endif
+}
+module_init(init_iphone_usb);

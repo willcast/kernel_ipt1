@@ -37,6 +37,7 @@
 #include "lcd.h"
 #include <mach/iphone-dma.h>
 #include <mach/iphone-i2c.h>
+#include <mach/usb.h>
 
 #include <linux/platform_device.h>
 
@@ -234,7 +235,7 @@ void __init iphone_init(void)
 	platform_device_register(&iphone_i2c);
 	i2c_register_board_info(0, iphone_i2c0, ARRAY_SIZE(iphone_i2c0));
 	i2c_register_board_info(1, iphone_i2c1, ARRAY_SIZE(iphone_i2c1));
-	platform_device_register(&s3c_device_usb_hsotg);
+	//init_iphone_usb();
 }
 
 MACHINE_START(APPLE_IPHONE, "Apple iPhone")

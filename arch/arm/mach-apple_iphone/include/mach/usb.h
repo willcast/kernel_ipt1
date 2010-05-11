@@ -21,7 +21,8 @@
 #ifndef IPHONE_HW_USB_H
 #define IPHONE_HW_USB_H
 
-extern struct platform_device s3c_device_usb_hsotg;
+//extern struct platform_device s3c_device_usb_hsotg;
+void init_iphone_usb(void);
 
 #endif
 
