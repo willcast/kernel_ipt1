@@ -408,6 +408,10 @@ config SENSORS_IBMPEX
 	  This driver can also be built as a module.  If so, the module
 	  will be called ibmpex.
 
+config SENSORS_IPHONE_ACCEL
+	tristate "iPhone/iPod Accelerometer"
+	depends on (IPHONE_3G || IPHONE_2G || IPODTOUCH_1G)
+
 config SENSORS_IT87
 	tristate "ITE IT87xx and compatibles"
 	select HWMON_VID
