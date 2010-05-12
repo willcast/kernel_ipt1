@@ -29,55 +29,55 @@
 static struct i2c_client *iphone_accel_i2c;
 
 int accel_get_reg(int reg) {
-        struct i2c_msg xfer[2];
-        u8 out[1];
+	struct i2c_msg xfer[2];
+	u8 out[1];
 	u8 accelReg = reg;
 
-        xfer[0].addr = ACCEL_GETADDR;
-        xfer[0].flags = 0;
-        xfer[0].len = 1;
-        xfer[0].buf = (u8 *)&accelReg;
+	xfer[0].addr = ACCEL_GETADDR;
+	xfer[0].flags = 0;
+	xfer[0].len = 1;
+	xfer[0].buf = (u8 *)&accelReg;
 
-        xfer[1].addr = ACCEL_GETADDR;
-        xfer[1].flags = I2C_M_RD;
-        xfer[1].len = 1;
-        xfer[1].buf = (u8 *)out;
+	xfer[1].addr = ACCEL_GETADDR;
+	xfer[1].flags = I2C_M_RD;
+	xfer[1].len = 1;
+	xfer[1].buf = (u8 *)out;
 
-        i2c_transfer(iphone_accel_i2c->adapter, xfer, 2);
+	i2c_transfer(iphone_accel_i2c->adapter, xfer, 2);
 
-        return out[0];
+	return out[0];
 }
 
 int accel_write_reg(int reg, int data, int verify) {
-        struct i2c_msg xfer[2];
-        u8 command[2];
-        u8 buffer = 0;
-        u8 accelReg = reg;
+	struct i2c_msg xfer[2];
+	u8 command[2];
+	u8 buffer = 0;
+	u8 accelReg = reg;
 
-        command[0] = reg;
-        command[1] = data;
+	command[0] = reg;
+	command[1] = data;
 
-        i2c_master_send(iphone_accel_i2c, command, sizeof(command));
+	i2c_master_send(iphone_accel_i2c, command, sizeof(command));
 
-        if(!verify)
-                return 0;
+	if(!verify)
+		return 0;
 
-        xfer[0].addr = ACCEL_GETADDR;
-        xfer[0].flags = 0;
-        xfer[0].len = 1;
-        xfer[0].buf = (u8 *)&accelReg;
+	xfer[0].addr = ACCEL_GETADDR;
+	xfer[0].flags = 0;
+	xfer[0].len = 1;
+	xfer[0].buf = (u8 *)&accelReg;
 
-        xfer[1].addr = ACCEL_GETADDR;
-        xfer[1].flags = I2C_M_RD;
-        xfer[1].len = 1;
-        xfer[1].buf = (u8 *)&buffer;
+	xfer[1].addr = ACCEL_GETADDR;
+	xfer[1].flags = I2C_M_RD;
+	xfer[1].len = 1;
+	xfer[1].buf = (u8 *)&buffer;
 
-        i2c_transfer(iphone_accel_i2c->adapter, xfer, 1);
+	i2c_transfer(iphone_accel_i2c->adapter, xfer, 1);
 
-        if(buffer == data)
-                return 0;
-        else
-                return -1;
+	if(buffer == data)
+		return 0;
+	else
+		return -1;
 }
 
 /* Sysfs methods */
@@ -129,19 +129,19 @@ static int __devinit iphone_accel_probe(struct i2c_client *i2c,
 	if (ret)
 		goto out;
 
-        whoami = accel_get_reg(ACCEL_WHOAMI);
-        if(whoami != ACCEL_WHOAMI_VALUE)
+	whoami = accel_get_reg(ACCEL_WHOAMI);
+	if(whoami != ACCEL_WHOAMI_VALUE)
 		goto out_sysfs;
 
-        accel_write_reg(ACCEL_CTRL_REG2, ACCEL_CTRL_REG2_BOOT, false);
-        accel_write_reg(ACCEL_CTRL_REG1, ACCEL_CTRL_REG1_PD | ACCEL_CTRL_REG1_XEN | ACCEL_CTRL_REG1_YEN | ACCEL_CTRL_REG1_ZEN, false);
+	accel_write_reg(ACCEL_CTRL_REG2, ACCEL_CTRL_REG2_BOOT, false);
+	accel_write_reg(ACCEL_CTRL_REG1, ACCEL_CTRL_REG1_PD | ACCEL_CTRL_REG1_XEN | ACCEL_CTRL_REG1_YEN | ACCEL_CTRL_REG1_ZEN, false);
 
 	printk(KERN_INFO "iphone_accel: device successfully initialized.\n");
 	return 0;
 
 out_sysfs:
-        sysfs_remove_group(&iphone_accel_i2c->dev.kobj, &iphone_accel_attribute_group);
-        printk(KERN_INFO "iphone-accel: incorrect whoami value\n");
+	sysfs_remove_group(&iphone_accel_i2c->dev.kobj, &iphone_accel_attribute_group);
+	printk(KERN_INFO "iphone-accel: incorrect whoami value\n");
 out:
 	printk(KERN_INFO "iphone_accel: error initializing\n");
 	return -1;
@@ -150,13 +150,13 @@ out:
 static int __devexit iphone_accel_remove(struct i2c_client *client)
 {
 	sysfs_remove_group(&iphone_accel_i2c->dev.kobj, &iphone_accel_attribute_group);
-        iphone_accel_i2c = NULL;
-        return 0;
+	iphone_accel_i2c = NULL;
+	return 0;
 }
 
 static const struct i2c_device_id iphone_accel_i2c_id[] = {
-        { "iphone-accel", 0 },
-        { }
+	{ "iphone-accel", 0 },
+	{ }
 };
 MODULE_DEVICE_TABLE(i2c, iphone_accel_i2c_id);
 
@@ -188,7 +188,7 @@ static int __init iphone_accel_init(void)
 	return 0;
 
 out:
-        i2c_del_driver(&iphone_accel_driver);
+	i2c_del_driver(&iphone_accel_driver);
 	printk(KERN_WARNING "iphone_accel: driver init failed (ret=%d)!\n", ret);
 	return ret;
 }
