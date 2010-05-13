@@ -136,6 +136,8 @@ static void bind_functions(struct android_dev *dev)
 	char **functions = dev->functions;
 	int i;
 
+	printk("android: binding USB functions...\n");
+
 	for (i = 0; i < dev->num_functions; i++) {
 		char *name = *functions++;
 		f = get_function(name);
@@ -144,6 +146,8 @@ static void bind_functions(struct android_dev *dev)
 		else
 			printk(KERN_ERR "function %s not found in bind_functions\n", name);
 	}
+
+	printk("android: functions bound...\n");
 }
 
 static int __init android_bind_config(struct usb_configuration *c)
@@ -309,6 +313,8 @@ void android_register_function(struct android_usb_function *f)
 	printk(KERN_INFO "android_register_function %s\n", f->name);
 	list_add_tail(&f->list, &_functions);
 	_registered_function_count++;
+
+	printk("android: %d of %d USB functions loaded.", _registered_function_count, dev->num_functions);
 
 	/* bind our functions if they have all registered
 	 * and the main driver has bound.

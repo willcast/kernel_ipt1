@@ -51,16 +51,16 @@ struct platform_device s3c_device_usb_hsotg = {
 
 #ifdef CONFIG_USB_ANDROID
 char *android_usb_functions[] = {
-#ifdef CONFIG_ANDROID_USB_ADB
+#ifdef CONFIG_USB_ANDROID_ADB
 	"adb",
 #endif
-#ifdef CONFIG_ANDROID_USB_ACM
+#ifdef CONFIG_USB_ANDROID_ACM
 	"acm",
 #endif
-#ifdef CONFIG_ANDROID_USB_MASS_STORAGE
+#ifdef CONFIG_USB_ANDROID_MASS_STORAGE
 	"usb_mass_storage",
 #endif
-#ifdef CONFIG_ANDROID_RNDIS
+#ifdef CONFIG_USB_ANDROID_RNDIS
 	"rndis",
 #endif
 };
@@ -82,7 +82,7 @@ struct android_usb_platform_data android_usb_config = {
 #endif
 
 	//.vendor_id			= TODO,
-	.product_id			= 0x1234,
+	//.product_id			= 0x1234,
 	.manufacturer_name	= "Apple",
 	.serial_number		= "0123456789", // TODO: Do we need to bother with this?
 
@@ -127,7 +127,7 @@ struct platform_device android_usb_storage = {
 
 struct usb_ether_platform_data android_usb_ether_config = {
 	.vendorDescr	= "Apple",
-	//.vendorID		= TODO,
+	//.vendorID		= 0x1d8c, // TODO: What should we use as the vendor ID?
 };
 
 struct platform_device android_usb_ether = {
