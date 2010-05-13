@@ -116,6 +116,10 @@ static int iphone_i2s_hw_params(struct snd_pcm_substream *substream,
 
 	pr_debug("ENTER iphone_i2s_hw_params\n");
 
+#ifdef CONFIG_IPHONE_3G
+	snd_soc_dai_set_pll(socdai, 0, 0, 0x785fc);
+#endif
+
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
 	{
 		dma_params = (socdai->id == 0) ? &dma_playback_wm : &dma_playback_bb;

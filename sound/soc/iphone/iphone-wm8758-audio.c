@@ -730,7 +730,7 @@ static int soc_codec_dev_iphone_remove(struct platform_device *pdev)
 	return 0;
 }
 
-struct snd_soc_codec_device soc_codec_dev_iphone = {
+struct snd_soc_codec_device soc_codec_dev_wm8758 = {
 	.probe          = soc_codec_dev_iphone_probe,
 	.remove         = soc_codec_dev_iphone_remove,
 };

@@ -54,6 +54,10 @@
 #define WM8991_SPEAKER_VOLUME                   0x22
 #define WM8991_CLASSD1                          0x23
 #define WM8991_CLASSD3                          0x25
+<<<<<<< HEAD
+=======
+#define WM8991_CLASSD4                          0x26
+>>>>>>> 5b3ee38029c92de204ccfc7ae6b19d2f25c4c6e7
 #define WM8991_INPUT_MIXER1                     0x27
 #define WM8991_INPUT_MIXER2                     0x28
 #define WM8991_INPUT_MIXER3                     0x29
@@ -104,6 +108,11 @@
 #define WM8991_LOUT_ENA_BIT			9
 #define WM8991_ROUT_ENA                         0x0100  /* ROUT_ENA */
 #define WM8991_ROUT_ENA_BIT			8
+<<<<<<< HEAD
+=======
+#define WM8991_MIC_ENA				0x0020  /* MICBIAS_ENA */
+#define WM8991_MIC_ENA_BIT			5
+>>>>>>> 5b3ee38029c92de204ccfc7ae6b19d2f25c4c6e7
 #define WM8991_MICBIAS_ENA                      0x0010  /* MICBIAS_ENA */
 #define WM8991_MICBIAS_ENA_BIT			4
 #define WM8991_VMID_MODE_MASK                   0x0006  /* VMID_MODE - [2:1] */
@@ -528,8 +537,13 @@
 /*
  * R34 (0x22) - Speaker Volume
  */
+<<<<<<< HEAD
 #define WM8991_SPKVOL_MASK                      0x0003  /* SPKVOL - [1:0] */
 #define WM8991_SPKVOL_SHIFT			0
+=======
+#define WM8991_SPKATTN_MASK                      0x0003  /* SPKVOL - [1:0] */
+#define WM8991_SPKATTN_SHIFT			 0
+>>>>>>> 5b3ee38029c92de204ccfc7ae6b19d2f25c4c6e7
 
 /*
  * R35 (0x23) - ClassD1
@@ -544,6 +558,18 @@
 #define WM8991_DCGAIN_SHIFT			3
 #define WM8991_ACGAIN_MASK                      0x0007  /* ACGAIN - [2:0] */
 #define WM8991_ACGAIN_SHIFT			0
+<<<<<<< HEAD
+=======
+
+/*
+ * R37 (0x26) - ClassD4
+ */
+#define WM8991_SPKZC				0x0080  /* LOPGAZC */
+#define WM8991_SPKZC_BIT			7
+#define WM8991_SPKVOL_MASK			0x007F
+#define WM8991_SPKVOL_SHIFT			0
+
+>>>>>>> 5b3ee38029c92de204ccfc7ae6b19d2f25c4c6e7
 /*
  * R39 (0x27) - Input Mixer1
  */
@@ -787,6 +813,10 @@
  * R58 (0x3A) - MICBIAS
  */
 #define WM8991_MCDSCTH_MASK                     0x00C0  /* MCDSCTH - [7:6] */
+<<<<<<< HEAD
+=======
+#define WM8991_MCDSCTH                          6       /* MCDSCTH - [7:6] */
+>>>>>>> 5b3ee38029c92de204ccfc7ae6b19d2f25c4c6e7
 #define WM8991_MCDTHR_MASK                      0x0038  /* MCDTHR - [5:3] */
 #define WM8991_MCD                              0x0004  /* MCD */
 #define WM8991_MBSEL                            0x0001  /* MBSEL */
@@ -825,4 +855,8 @@ extern struct snd_soc_dai wm8991_dai;
 extern struct snd_soc_codec_device soc_codec_dev_wm8991;
 
 #endif	/* __WM8991REGISTERDEFS_H__ */
+<<<<<<< HEAD
 /*------------------------------ END OF FILE ---------------------------------*/
+=======
+/*------------------------------ END OF FILE ---------------------------------*/
+>>>>>>> 5b3ee38029c92de204ccfc7ae6b19d2f25c4c6e7

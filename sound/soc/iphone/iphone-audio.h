@@ -14,5 +14,5 @@ extern struct snd_soc_dai iphone_i2s_wm8758_dai;
 extern struct snd_soc_dai iphone_i2s_bb_dai;
 extern struct snd_soc_dai iphone_bb_dai;
 extern struct snd_soc_dai iphone_wm8758_dai;
-extern struct snd_soc_codec_device soc_codec_dev_iphone;
+extern struct snd_soc_codec_device soc_codec_dev_wm8758;
 #endif
