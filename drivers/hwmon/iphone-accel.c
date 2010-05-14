@@ -29,55 +29,11 @@
 static struct i2c_client *iphone_accel_i2c;
 
 int accel_get_reg(int reg) {
-	struct i2c_msg xfer[2];
-	u8 out[1];
-	u8 accelReg = reg;
-
-	xfer[0].addr = ACCEL_GETADDR;
-	xfer[0].flags = 0;
-	xfer[0].len = 1;
-	xfer[0].buf = (u8 *)&accelReg;
-
-	xfer[1].addr = ACCEL_GETADDR;
-	xfer[1].flags = I2C_M_RD;
-	xfer[1].len = 1;
-	xfer[1].buf = (u8 *)out;
-
-	i2c_transfer(iphone_accel_i2c->adapter, xfer, 2);
-
-	return out[0];
+	return i2c_smbus_read_data_byte(iphone_accel_i2c, reg);
 }
 
 int accel_write_reg(int reg, int data, int verify) {
-	struct i2c_msg xfer[2];
-	u8 command[2];
-	u8 buffer = 0;
-	u8 accelReg = reg;
-
-	command[0] = reg;
-	command[1] = data;
-
-	i2c_master_send(iphone_accel_i2c, command, sizeof(command));
-
-	if(!verify)
-		return 0;
-
-	xfer[0].addr = ACCEL_GETADDR;
-	xfer[0].flags = 0;
-	xfer[0].len = 1;
-	xfer[0].buf = (u8 *)&accelReg;
-
-	xfer[1].addr = ACCEL_GETADDR;
-	xfer[1].flags = I2C_M_RD;
-	xfer[1].len = 1;
-	xfer[1].buf = (u8 *)&buffer;
-
-	i2c_transfer(iphone_accel_i2c->adapter, xfer, 1);
-
-	if(buffer == data)
-		return 0;
-	else
-		return -1;
+	i2c_smbus_write_data_byte(iphone_accel_i2c, reg, data);
 }
 
 /* Sysfs methods */
@@ -133,8 +89,8 @@ static int __devinit iphone_accel_probe(struct i2c_client *i2c,
 	if(whoami != ACCEL_WHOAMI_VALUE)
 		goto out_sysfs;
 
-	accel_write_reg(ACCEL_CTRL_REG2, ACCEL_CTRL_REG2_BOOT, false);
-	accel_write_reg(ACCEL_CTRL_REG1, ACCEL_CTRL_REG1_PD | ACCEL_CTRL_REG1_XEN | ACCEL_CTRL_REG1_YEN | ACCEL_CTRL_REG1_ZEN, false);
+	accel_write_reg(ACCEL_CTRL_REG2, ACCEL_CTRL_REG2_BOOT);
+	accel_write_reg(ACCEL_CTRL_REG1, ACCEL_CTRL_REG1_PD | ACCEL_CTRL_REG1_XEN | ACCEL_CTRL_REG1_YEN | ACCEL_CTRL_REG1_ZEN);
 
 	printk(KERN_INFO "iphone_accel: device successfully initialized.\n");
 	return 0;
