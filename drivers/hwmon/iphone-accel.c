@@ -32,7 +32,7 @@ int accel_get_reg(int reg) {
 	return i2c_smbus_read_byte_data(iphone_accel_i2c, reg);
 }
 
-int accel_write_reg(int reg, int data, int verify) {
+void accel_write_reg(int reg, int data) {
 	i2c_smbus_write_byte_data(iphone_accel_i2c, reg, data);
 }
 
