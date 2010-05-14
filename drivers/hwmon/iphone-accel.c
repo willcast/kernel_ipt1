@@ -29,11 +29,11 @@
 static struct i2c_client *iphone_accel_i2c;
 
 int accel_get_reg(int reg) {
-	return i2c_smbus_read_data_byte(iphone_accel_i2c, reg);
+	return i2c_smbus_read_byte_data(iphone_accel_i2c, reg);
 }
 
 int accel_write_reg(int reg, int data, int verify) {
-	i2c_smbus_write_data_byte(iphone_accel_i2c, reg, data);
+	i2c_smbus_write_byte_data(iphone_accel_i2c, reg, data);
 }
 
 /* Sysfs methods */
