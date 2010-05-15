@@ -410,7 +410,7 @@ config SENSORS_IBMPEX
 
 config SENSORS_IPHONE_ACCEL
 	tristate "iPhone/iPod Accelerometer"
-	depends on (IPHONE_3G || IPHONE_2G || IPODTOUCH_1G)
+	depends on (IPHONE_3G || IPHONE_2G || IPODTOUCH_1G) && I2C
 
 config SENSORS_IT87
 	tristate "ITE IT87xx and compatibles"
