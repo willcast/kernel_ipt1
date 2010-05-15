@@ -10,13 +10,17 @@
 #ifdef CONFIG_IPHONE_2G
 #	define MT_GPIO_POWER 0x804
 #	define MT_ATN_INTERRUPT 0xa3
-#	define MT_SPI 2
-#	define MT_SPI_CS GPIO_SPI2_CS0
 #else
 #	define MT_GPIO_POWER 0x701
 #	define MT_ATN_INTERRUPT 0x9b
+#endif
+
+#ifdef CONFIG_IPHONE_3G
 #	define MT_SPI 1
 #	define MT_SPI_CS GPIO_SPI1_CS0
+#else
+#	define MT_SPI 2
+#	define MT_SPI_CS GPIO_SPI2_CS0
 #endif
 
 #define MT_INFO_FAMILYID 0xD1
@@ -990,27 +994,35 @@ int z2_setup(const u8* constructedFirmware, int constructedFirmwareLen, const u8
 	iphone_gpio_pin_output(MT_GPIO_POWER, 1);
 	msleep(15);
 
-	// Initialisation of ...?
-	iphone_gpio_pin_output(0x606, 0);
-	msleep(200);
-	iphone_gpio_pin_output(0x606, 1);
-	msleep(15);
-
-	// Send Firmware
-	printk("zephyr2: Sending Firmware...\n");
-	if(!loadConstructedFirmware(constructedFirmware, constructedFirmwareLen))
+	for(i = 0; i < 4; ++i)
 	{
-		printk("zephyr2: could not load preconstructed firmware\n");
-		err = -1;
-		kfree(InputPacket);
-		kfree(OutputPacket);
-		kfree(GetInfoPacket);
-		kfree(GetResultPacket);
-		return err;
+		iphone_gpio_pin_output(0x606, 0);
+		msleep(200);
+		iphone_gpio_pin_output(0x606, 1);
+		msleep(15);
+
+		// Send Firmware
+		printk("zephyr2: Sending Firmware...\n");
+		if(loadConstructedFirmware(constructedFirmware, constructedFirmwareLen))
+		{
+			break;
+		}
+	}
+
+	if(i == 4)
+	{
+			printk("zephyr2: could not load preconstructed firmware\n");
+			err = -1;
+			kfree(InputPacket);
+			kfree(OutputPacket);
+			kfree(GetInfoPacket);
+			kfree(GetResultPacket);
+			return err;
 	}
 
 	printk("zephyr2: loaded %d byte preconstructed firmware\n", constructedFirmwareLen);
 
+#ifndef CONFIG_IPODTOUCH_1G
 	if(!loadProxCal(prox_cal, prox_cal_size))
 	{
 		printk("zephyr2: could not load proximity calibration data\n");
@@ -1021,6 +1033,7 @@ int z2_setup(const u8* constructedFirmware, int constructedFirmwareLen, const u8
 		kfree(GetResultPacket);
 		return err;
 	}
+#endif
 
 	printk("zephyr2: loaded %d byte proximity calibration data\n", prox_cal_size);
 

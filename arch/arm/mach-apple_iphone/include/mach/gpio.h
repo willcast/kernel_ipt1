@@ -49,6 +49,7 @@
 #define GPIO_BUTTONS_HOLD 0x1605
 #define GPIO_BUTTONS_HOLD_IRQ 0x2D
 
+#ifndef CONFIG_IPODTOUCH_1G
 #define GPIO_BUTTONS_VOLUP 0x1601
 #define GPIO_BUTTONS_VOLUP_IRQ 0x29
 
@@ -57,7 +58,7 @@
 
 #define GPIO_BUTTONS_RINGERAB 0x1603
 #define GPIO_BUTTONS_RINGERAB_IRQ 0x2B
-
+#endif
 
 typedef struct GPIORegisters {
 	volatile uint32_t CON;

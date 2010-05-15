@@ -41,7 +41,7 @@
 #define I2S_RXCOM 0x34
 #define I2S_STATUS 0x3C
 
-#ifdef CONFIG_IPOD
+#ifdef CONFIG_IPODTOUCH_1G
 #define WM_I2S I2S1
 #define DMA_WM_I2S_TX IPHONE_DMA_I2S1_TX
 #define DMA_WM_I2S_RX IPHONE_DMA_I2S1_RX
@@ -64,6 +64,7 @@ struct iphone_i2s_dma_params dma_recording_wm = {
 	.i2sController	= WM_I2S,
 };
 
+#ifndef CONFIG_IPODTOUCH_1G
 struct iphone_i2s_dma_params dma_playback_bb = {
 	.dma_target	= DMA_BB_I2S_TX,
 	.i2sController	= BB_I2S,
@@ -73,6 +74,7 @@ struct iphone_i2s_dma_params dma_recording_bb = {
 	.dma_target = DMA_BB_I2S_RX,
 	.i2sController	= BB_I2S,
 };
+#endif
 
 static int iphone_i2s_startup(struct snd_pcm_substream *substream,
 			      struct snd_soc_dai *socdai)
@@ -83,7 +85,11 @@ static int iphone_i2s_startup(struct snd_pcm_substream *substream,
 	pr_debug("ENTER iphone_i2s_startup\n");
 
 	/* prepopulate DMA data so that anyone can figure out which DMA controller is needed */
+#ifdef CONFIG_IPODTOUCH_1G
+	dai->cpu_dai->dma_data = &dma_playback_wm;
+#else
 	dai->cpu_dai->dma_data = (socdai->id == 0) ? &dma_playback_wm : &dma_playback_bb;
+#endif
 	return 0;
 }
 
@@ -117,7 +123,11 @@ static int iphone_i2s_hw_params(struct snd_pcm_substream *substream,
 
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
 	{
+#ifdef CONFIG_IPODTOUCH_1G
+		dma_params = &dma_playback_wm;
+#else
 		dma_params = (socdai->id == 0) ? &dma_playback_wm : &dma_playback_bb;
+#endif
 		dai->cpu_dai->dma_data = dma_params;
 		writel( (1 << 24) |  /* undocumented */
 			(1 << 20) |  /* undocumented */
@@ -141,7 +151,11 @@ static int iphone_i2s_hw_params(struct snd_pcm_substream *substream,
 			dma_params->i2sController + I2S_TXCOM);    /* 0 = LRCK on */
 	} else
 	{
+#ifdef CONFIG_IPODTOUCH_1G
+		dma_params = &dma_recording_wm;
+#else
 		dma_params = (socdai->id == 0) ? &dma_recording_wm : &dma_recording_bb;
+#endif
 		dai->cpu_dai->dma_data = dma_params;
 		writel(
 			(0 << 12) |  /* 0 = falling edge */
