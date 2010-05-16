@@ -220,6 +220,9 @@ static struct i2c_board_info __initdata iphone_i2c0[] = {
 	{
 		I2C_BOARD_INFO("wm8991", 0x36),
 	},
+	{
+		I2C_BOARD_INFO("alsISL29003", 0x88),
+	},
 #endif
 };
 
