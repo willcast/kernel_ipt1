@@ -60,31 +60,11 @@ static u8 als_readb(u8 addr)
         return ret[0];
 }
 
-static u16 als_readw(u8 addr)
+static int als_readw(u8 addr)
 {
-        struct i2c_msg xfer[2];
         u8 registers;
-	u16 ret;
-
         registers = addr | (1 << 6);
-        ret = 0;
-
-//        i2c_master_send(alsISL29003_i2c, (u8 *)&registers, 1);
-//        i2c_master_recv(alsISL29003_i2c, (u16 *)&ret, sizeof(ret));
-
-        xfer[0].addr = ALS_ADDR;
-        xfer[0].flags = 0;
-        xfer[0].len = 1;
-        xfer[0].buf = (u8 *)&registers;
-
-        xfer[1].addr = ALS_ADDR;
-        xfer[1].flags = I2C_M_RD;
-        xfer[1].len = sizeof(ret);
-        xfer[1].buf = (u16 *)&ret;
-
-        i2c_transfer(alsISL29003_i2c->adapter, xfer, 2);
-
-        return ret;
+        return i2c_smbus_read_byte_data(alsISL29003_i2c, registers);
 }
 
 void als_setchannel(int channel)
