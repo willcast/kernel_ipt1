@@ -134,6 +134,24 @@ static bool getReport(int id, u8* buffer, int* outLen);
 
 static void newPacket(const u8* data, int len);
 
+static bool MultitouchOn = false;
+
+void multitouch_on()
+{
+	if(MultitouchOn == true)
+		return;
+
+	// Power up the device (turn it off then on again. ;])
+	printk("zephyr2: Powering Up Multitouch!\n");
+	iphone_gpio_pin_output(MT_GPIO_POWER, 0);
+	msleep(200);
+
+	iphone_gpio_pin_output(MT_GPIO_POWER, 1);
+	msleep(15);
+
+	MultitouchOn = true;
+}
+
 static u32 z2_getU32(u8 *_buf)
 {
 	return (_buf[2] << 24)
@@ -986,13 +1004,7 @@ int z2_setup(const u8* constructedFirmware, int constructedFirmwareLen, const u8
 
 	request_irq(MT_ATN_INTERRUPT + IPHONE_GPIO_IRQS, z2_irq, IRQF_TRIGGER_FALLING, "iphone-multitouch", (void*) 0);
 
-	// Power up the device (turn it off then on again. ;])
-	printk("zephyr2: Powering Up Multitouch!\n");
-	iphone_gpio_pin_output(MT_GPIO_POWER, 0);
-	msleep(200);
-
-	iphone_gpio_pin_output(MT_GPIO_POWER, 1);
-	msleep(15);
+	multitouch_on();
 
 	for(i = 0; i < 4; ++i)
 	{
