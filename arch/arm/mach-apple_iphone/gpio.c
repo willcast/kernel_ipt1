@@ -62,6 +62,7 @@ static struct gpio_keys_button iphone_gpio_keys_table[] = {
 		.wakeup = 0,
 		.debounce_interval = 20,
 	},
+#ifndef CONFIG_IPODTOUCH_1G
 	/* we'll map these to more useful keys until somebody comes up with a better solution */
 	{
 		.gpio = GPIO_BUTTONS_VOLUP,
@@ -95,6 +96,7 @@ static struct gpio_keys_button iphone_gpio_keys_table[] = {
 		.wakeup = 0,
 		.debounce_interval = 20,
 	},*/
+#endif
 };
 
 static struct gpio_keys_platform_data iphone_gpio_keys_data = {
@@ -109,11 +111,18 @@ static struct platform_device iphone_device_gpiokeys = {
 	},
 };
 
+#ifndef CONFIG_IPHONE_3G
 static struct gpio_switch_platform_data headset_switch_data = {
 	.name = "h2w",
+#ifdef CONFIG_IPHONE_2G
 	.gpio = 0x1402,
 	.state_on = "0",
 	.state_off = "1",
+#else
+	.gpio = 0x1205,
+	.state_on = "1",
+	.state_off = "0",
+#endif
 	.irq_flags = IRQF_TRIGGER_HIGH | IRQF_TRIGGER_LOW,
 };
 
@@ -123,6 +132,7 @@ static struct platform_device headset_switch_device = {
 		.platform_data = &headset_switch_data,
 	}
 }; 
+#endif
 
 static int iphone_gpio_setup(void) {
 	int i;
@@ -175,7 +185,9 @@ static int iphone_gpio_setup(void) {
 	iphone_clock_gate_switch(GPIO_CLOCKGATE, 1);
 
 	platform_device_register(&iphone_device_gpiokeys);
+#ifndef CONFIG_IPHONE_3G
 	platform_device_register(&headset_switch_device);
+#endif
 	printk("iphone-gpio: GPIO input devices registered\n");
 
 	return 0;
@@ -320,6 +332,9 @@ int gpio_to_irq(unsigned gpio)
 	} else if(gpio == 0x1402)
 	{
 		return IPHONE_GPIO_IRQS + 0x3A;
+	} else if(gpio == 0x1205)
+	{
+		return IPHONE_GPIO_IRQS + 0x4D;
 	}
 
 	return -1;

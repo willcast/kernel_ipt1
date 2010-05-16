@@ -28,9 +28,14 @@
 #include <sound/initval.h>
 #include <sound/tlv.h>
 #include <asm/div64.h>
+#include <linux/interrupt.h>
+#include <mach/gpio.h>
+#include <linux/switch.h>
 #include <linux/debugfs.h>
 
 #include "wm8991.h"
+
+#define WM8991_INT_GPIO 0x1604
 
 /* codec private data */
 struct wm8991_priv {
@@ -38,7 +43,11 @@ struct wm8991_priv {
 	u16 reg_cache[WM8991_MAX_REGISTER + 1];
 	unsigned int sysclk;
 	unsigned int pcmclk;
+	struct switch_dev sdev;
+	struct work_struct switch_work;
 };
+
+static u32 headphone_plugged_in = 0;
 
 static struct dentry* debugfs_entry;
 struct debugfs_blob_wrapper debugfs_blob;
@@ -160,6 +169,34 @@ static int wm8991_write(struct snd_soc_codec *codec, unsigned int reg,
 	}
 
 	return 0;
+}
+
+static unsigned int wm8991_read(struct snd_soc_codec *codec, unsigned int reg)
+{
+	struct i2c_client* i2c = codec->control_data;
+	struct i2c_msg xfer[2];
+	u8 in;
+	u8 out[2];
+
+	in = reg;
+	xfer[0].addr = i2c->addr;
+	xfer[0].flags = 0;
+	xfer[0].len = 1;
+	xfer[0].buf = (u8*) &in;
+
+	xfer[1].addr = i2c->addr;
+	xfer[1].flags = I2C_M_RD;
+	xfer[1].len = 2;
+	xfer[1].buf = out;
+
+	if(i2c_transfer(i2c->adapter, xfer, 2) == 2)
+	{
+		u16 value = (out[0] << 8) | out[1];
+		wm8991_write_reg_cache(codec, reg, value);
+		return value;
+	}
+
+	return 0xFFFFFFFF;
 }
 
 #define wm8991_reset(c) wm8991_write(c, WM8991_RESET, 0)
@@ -1431,6 +1468,54 @@ struct snd_soc_codec_device soc_codec_dev_wm8991 = {
 };
 EXPORT_SYMBOL_GPL(soc_codec_dev_wm8991);
 
+static ssize_t wm8991_switch_print_state(struct switch_dev *sdev, char *buf)
+{
+	if(headphone_plugged_in)
+		return sprintf(buf, "1\n");
+	else
+		return sprintf(buf, "0\n");
+}
+
+static void wm8991_switch_work(struct work_struct *work)
+{
+	struct wm8991_priv* wm8991 = container_of(work, struct wm8991_priv, switch_work);
+	struct snd_soc_codec *codec = &wm8991->codec;
+	uint16_t status;
+	uint16_t polarity;
+
+	if(!gpio_get_value(WM8991_INT_GPIO))
+		return;
+
+	status = wm8991_read(codec, WM8991_GPIO_CTRL_1);
+	polarity = wm8991_read(codec, WM8991_GPIO_POL);
+
+	if(status & (1 << 4))
+	{
+		if(polarity & (1 << 4))
+		{
+			polarity = polarity & ~(1 << 4);
+			headphone_plugged_in = 0;
+		} else
+		{
+			polarity = polarity | (1 << 4);
+			headphone_plugged_in = 1;
+		}
+
+		switch_set_state(&wm8991->sdev, headphone_plugged_in);
+
+		wm8991_write(codec, WM8991_GPIO_POL, polarity);
+	}
+
+	wm8991_write(codec, WM8991_GPIO_CTRL_1, status);
+}
+
+static irqreturn_t wm8991_irq(int irq, void* pToken)
+{
+	struct wm8991_priv* wm8991 = (struct wm8991_priv*) pToken;
+	schedule_work(&wm8991->switch_work);
+	return IRQ_HANDLED;
+}
+
 static int wm8991_register(struct wm8991_priv *wm8991)
 {
 	int ret;
@@ -1487,6 +1572,11 @@ static int wm8991_register(struct wm8991_priv *wm8991)
 	wm8991_write(codec, WM8991_LEFT_OUTPUT_VOLUME, 0x50 | (1<<8));
 	wm8991_write(codec, WM8991_RIGHT_OUTPUT_VOLUME, 0x50 | (1<<8));
 
+	wm8991_write(codec, WM8991_GPIO1_GPIO2, WM8991_GPIO2_PD | 0x700);	// GPIO2 pulldown, GPIO2 is IRQ
+	wm8991_write(codec, WM8991_GPIO3_GPIO4, WM8991_GPIO4_PD);
+	wm8991_write(codec, WM8991_GPIO5_GPIO6, WM8991_GPIO6_PD | WM8991_GPIO5_IRQ_ENA);
+	wm8991_write(codec, WM8991_GPIO_POL, WM8991_TEMPOK_POL | WM8991_GPIO3_POL);
+
 	wm8991_codec = codec;
 
 	ret = snd_soc_register_codec(codec);
@@ -1502,21 +1592,41 @@ static int wm8991_register(struct wm8991_priv *wm8991)
 		return ret;
 	}
 
+	INIT_WORK(&wm8991->switch_work, wm8991_switch_work);
+
+	iphone_gpio_pin_reset(WM8991_INT_GPIO);
+	request_irq(gpio_to_irq(WM8991_INT_GPIO), wm8991_irq, IRQF_TRIGGER_RISING, "wm8991", wm8991);
+
+	wm8991->sdev.name = "h2w";
+	wm8991->sdev.print_state = wm8991_switch_print_state;
+
+	ret = switch_dev_register(&wm8991->sdev);
+	if (ret < 0)
+	{
+		dev_err(codec->dev, "Failed to register headphone detection switch: %d\n", ret);
+		snd_soc_unregister_dai(&wm8991_dai);
+		snd_soc_unregister_codec(codec);
+	}
+
 	debugfs_entry = debugfs_create_dir("wm8991", NULL);
 	debugfs_blob.data = &wm8991->reg_cache;
 	debugfs_blob.size = (WM8991_MAX_REGISTER + 1) * sizeof(u16);
 	debugfs_create_blob("registers", S_IRUSR, debugfs_entry, &debugfs_blob);
+	debugfs_create_bool("headphone", S_IRUSR, debugfs_entry, &headphone_plugged_in);
+
 	return 0;
 }
 
 static void wm8991_unregister(struct wm8991_priv *wm8991)
 {
+	debugfs_remove_recursive(debugfs_entry);
+	switch_dev_unregister(&wm8991->sdev);
+	free_irq(gpio_to_irq(WM8991_INT_GPIO), wm8991->codec.dev);
 	wm8991_set_bias_level(&wm8991->codec, SND_SOC_BIAS_OFF);
 	snd_soc_unregister_dai(&wm8991_dai);
 	snd_soc_unregister_codec(&wm8991->codec);
 	kfree(wm8991);
 	wm8991_codec = NULL;
-	debugfs_remove_recursive(debugfs_entry);
 }
 
 static __devinit int wm8991_i2c_probe(struct i2c_client *i2c,

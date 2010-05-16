@@ -15,8 +15,10 @@
 
 #ifdef CONFIG_IPODTOUCH_1G
 #define SDIO_GPIO_POWER 0x1701
-#else
-#define SDIO_GPIO_POWER 0x607
+#endif
+
+#ifndef CONFIG_IPODTOUCH_1G
+#define SDIO_GPIO_DEVICE_RESET 0x607
 #endif
 
 #define SDIO_CTRL       0x0
@@ -39,8 +41,6 @@
 #define SDIO_BLKLEN     0x48
 #define SDIO_NUMBLK     0x4C
 #define SDIO_REMBLK     0x50
-
-#define SDIO_GPIO_DEVICE_RESET 0x607
 
 #define sdio_set_reg(reg, x) writel((x), sdio->regs + (reg))
 #define sdio_get_reg(reg) readl(sdio->regs + (reg))
@@ -174,10 +174,19 @@ static int sdio_reset(struct iphone_sdio* sdio)
 {
 	int ret;
 
+#ifdef SDIO_GPIO_POWER
+	iphone_gpio_pin_output(SDIO_GPIO_POWER, 0);
+	msleep(5);
+	iphone_gpio_pin_output(SDIO_GPIO_POWER, 1);
+	msleep(10);
+#endif
+
+#ifdef SDIO_GPIO_DEVICE_RESET
 	iphone_gpio_pin_output(SDIO_GPIO_DEVICE_RESET, 1);
 	msleep(5);
 	iphone_gpio_pin_output(SDIO_GPIO_DEVICE_RESET, 0);
 	msleep(10);
+#endif
 
 	ret = sdio_wait_for_ready(sdio, 100);
 	if(ret)

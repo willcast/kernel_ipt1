@@ -202,6 +202,7 @@ void __init iphone_map_io(void)
 }
 
 static struct i2c_board_info __initdata iphone_i2c0[] = {
+#ifdef CONFIG_IPHONE_2G
 	{
 		I2C_BOARD_INFO("iphone-accel", 0x3a),
 	},
@@ -211,7 +212,6 @@ static struct i2c_board_info __initdata iphone_i2c0[] = {
 	{
 		I2C_BOARD_INFO("tsl2561", 0x92),
 	},
-#ifdef CONFIG_IPHONE_2G
 	{
 		I2C_BOARD_INFO("wm8758", 0x34),
 	},
@@ -224,7 +224,14 @@ static struct i2c_board_info __initdata iphone_i2c0[] = {
 };
 
 static struct i2c_board_info __initdata iphone_i2c1[] = {
-	// What is on bus #1? -- Ricky26
+#ifdef CONFIG_IPODTOUCH_1G
+	{
+		I2C_BOARD_INFO("iphone-pmu", 0xe6),
+	},
+	{
+		I2C_BOARD_INFO("wm8758", 0x34),
+	},
+#endif
 };
 
 void __init iphone_init(void)
@@ -232,11 +239,12 @@ void __init iphone_init(void)
 	printk("iphone: platform init\r\n");
 	iphone_dma_setup();
 
+	i2c_register_board_info(0, iphone_i2c0, ARRAY_SIZE(iphone_i2c0));
+	i2c_register_board_info(1, iphone_i2c1, ARRAY_SIZE(iphone_i2c1));
+
 	platform_device_register(&iphone_dma);
 	platform_device_register(&iphone_nand);
 	platform_device_register(&iphone_i2c);
-	i2c_register_board_info(0, iphone_i2c0, ARRAY_SIZE(iphone_i2c0));
-	i2c_register_board_info(1, iphone_i2c1, ARRAY_SIZE(iphone_i2c1));
 	platform_device_register(&s3c_device_usb_hsotg);
 }
 
