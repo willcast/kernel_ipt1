@@ -408,6 +408,10 @@ config SENSORS_IBMPEX
 	  This driver can also be built as a module.  If so, the module
 	  will be called ibmpex.
 
+config SENSORS_ALS_ISL29003
+        tristate "Intersil ISL29003 Ambient Light Sensor"
+        depends on IPHONE_3G && I2C
+
 config SENSORS_IPHONE_ACCEL
 	tristate "iPhone/iPod Accelerometer"
 	depends on (IPHONE_3G || IPHONE_2G || IPODTOUCH_1G) && I2C
