@@ -1045,9 +1045,9 @@ int z2_setup(const u8* constructedFirmware, int constructedFirmwareLen, const u8
 		kfree(GetResultPacket);
 		return err;
 	}
-#endif
 
 	printk("zephyr2: loaded %d byte proximity calibration data\n", prox_cal_size);
+#endif
 
 	if(!loadCal(cal, cal_size))
 	{
