@@ -215,6 +215,9 @@ static struct i2c_board_info __initdata iphone_i2c0[] = {
 #endif
 #ifdef CONFIG_IPHONE_3G
 	{
+		I2C_BOARD_INFO("iphone-pmu", 0xe6),
+	},
+	{
 		I2C_BOARD_INFO("wm8991", 0x36),
 	},
 #endif
