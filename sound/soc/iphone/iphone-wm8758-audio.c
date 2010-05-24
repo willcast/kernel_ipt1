@@ -15,12 +15,6 @@
  *
  */
 
-#ifdef CONFIG_IPOD
-#define WMCODEC_I2C 1
-#else
-#define WMCODEC_I2C 0
-#endif
-
 #define RESET       0x00
 #define PWRMGMT1    0x01
 #define PWRMGMT2    0x02

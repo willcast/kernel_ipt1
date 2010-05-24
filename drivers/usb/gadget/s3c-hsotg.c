@@ -3148,12 +3148,6 @@ static int __devinit s3c_hsotg_probe(struct platform_device *pdev)
 
 	hsotg->irq = ret;
 
-	ret = request_irq(ret, s3c_hsotg_irq, 0, dev_name(dev), hsotg);
-	if (ret < 0) {
-		dev_err(dev, "cannot claim IRQ\n");
-		goto err_regs;
-	}
-
 	dev_info(dev, "regs %p, irq %d\n", hsotg->regs, hsotg->irq);
 
 	device_initialize(&hsotg->gadget.dev);
@@ -3196,6 +3190,12 @@ static int __devinit s3c_hsotg_probe(struct platform_device *pdev)
 	s3c_hsotg_create_debug(hsotg);
 
 	s3c_hsotg_dump(hsotg);
+
+	ret = request_irq(ret, s3c_hsotg_irq, 0, dev_name(dev), hsotg);
+	if (ret < 0) {
+		dev_err(dev, "cannot claim IRQ\n");
+		goto err_regs;
+	}
 
 	our_hsotg = hsotg;
 	return 0;

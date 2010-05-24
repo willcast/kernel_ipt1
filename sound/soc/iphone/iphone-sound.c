@@ -12,7 +12,7 @@
 #include "../codecs/wm8991.h"
 #endif
 
-#ifdef CONFIG_IPHONE_2G
+#ifndef CONFIG_IPHONE_3G
 static int iphone_soc_to_wm8758_init(struct snd_soc_codec *codec)
 {
 	pr_debug("ENTER iphone_soc_to_wm8758_init\n");
@@ -71,7 +71,7 @@ static struct snd_soc_ops iphone_wm8991_link_ops =
 #endif
 
 static struct snd_soc_dai_link iphone_dai_links[] = {
-#ifdef CONFIG_IPHONE_2G
+#ifndef CONFIG_IPHONE_3G
 	{
 		.name           = "WM8758",
 		.stream_name    = "WM8758",
@@ -79,6 +79,7 @@ static struct snd_soc_dai_link iphone_dai_links[] = {
 		.codec_dai      = &iphone_wm8758_dai,
 		.init           = iphone_soc_to_wm8758_init,
 	},
+#ifndef CONFIG_IPODTOUCH_1G
 	{
 		.name           = "Baseband",
 		.stream_name    = "Baseband",
@@ -87,7 +88,7 @@ static struct snd_soc_dai_link iphone_dai_links[] = {
 		.init           = iphone_soc_to_bb_init,
 	}
 #endif
-#ifdef CONFIG_IPHONE_3G
+#else
 	{
 		.name			= "WM8991",
 		.stream_name	= "WM8991",
@@ -117,11 +118,9 @@ static struct wm8990_setup_data wm8991_i2c_setup = {
 static struct snd_soc_device iphone_snd_soc_device = {
 	.card           = &iphone_snd_soc_card,
 
-#ifdef CONFIG_IPHONE_2G
+#ifndef CONFIG_IPHONE_3G
 	.codec_dev      = &soc_codec_dev_wm8758,
-#endif
-
-#ifdef CONFIG_IPHONE_3G
+#else
 	.codec_dev		= &soc_codec_dev_wm8991,
 	//.codec_data		= &wm8991_i2c_setup,
 #endif

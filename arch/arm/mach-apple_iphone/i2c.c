@@ -252,7 +252,7 @@ static int iphone_i2c_xfer(struct i2c_adapter *adapter,
 	{
 		msg = &msgs[i];
 		send_stop = (i == num-1) || (msgs[i+1].addr != msg->addr);
-		bus = (adapter == &iphone_i2c1) ? 1 : 0;
+		bus = adapter->nr;
 
 		if(msg->flags & I2C_M_RD)
 			ret = iphone_i2c_recv(bus, msg->addr, send_stop, msg->buf, msg->len);
@@ -315,14 +315,14 @@ static const struct i2c_algorithm iphone_i2c_algorithm = {
 };
 
 static struct i2c_adapter iphone_i2c0 = {
-	.id 		= 0,
+	.nr 		= 0,
 	.owner		= THIS_MODULE,
 	.class    	= 0, 
 	.algo		= &iphone_i2c_algorithm,
 };
 
 static struct i2c_adapter iphone_i2c1 = {
-	.id 		= 1,
+	.nr 		= 1,
 	.owner		= THIS_MODULE,
 	.class    	= 0, 
 	.algo		= &iphone_i2c_algorithm,
@@ -338,14 +338,14 @@ static int __init iphone_i2c_init(void)
 	ret = i2c_add_numbered_adapter(&iphone_i2c0);
 	if(ret)
 	{
-		printk("iphone-i2c: Failed to add I2C Bus #0.\n");
+		printk("iphone-i2c: Failed to add I2C Bus #0: %d\n", ret);
 		return ret;
 	}
 
 	ret = i2c_add_numbered_adapter(&iphone_i2c1);
 	if(ret)
 	{
-		printk("iphone-i2c: Failed to add I2C Bus #1.\n");
+		printk("iphone-i2c: Failed to add I2C Bus #1: %d\n", ret);
 		return ret;
 	}
 

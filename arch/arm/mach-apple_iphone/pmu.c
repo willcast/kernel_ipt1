@@ -9,35 +9,13 @@
 #include <linux/i2c.h>
 #include <mach/gpio.h>
 
-/*typedef struct PMURegisterData {
-	uint8_t reg;
-	uint8_t data;
-} PMURegisterData;*/
-
 
 static struct i2c_client *pmu_i2c;
 static struct rtc_device *rtc;
 
 
-
 static int iphone_pmu_get_reg(int reg) {
-	struct i2c_msg xfer[2];
-	uint8_t out[1];
-	int ret;
- 
-	xfer[0].addr = PMU_GETADDR;
-	xfer[0].flags = 0;
-	xfer[0].len = 1;
-	xfer[0].buf = (u8 *)&reg;
-
-	xfer[1].addr = PMU_GETADDR;
-	xfer[1].flags = I2C_M_RD;
-	xfer[1].len = 1;
-	xfer[1].buf = (u8 *)out;
-
-	ret = i2c_transfer(pmu_i2c->adapter, xfer, 2);
-
-	return out[0];
+	return i2c_smbus_read_byte_data(pmu_i2c, reg);
 }
 
 static int iphone_pmu_get_regs(int reg, uint8_t* out, int count) {
@@ -60,20 +38,9 @@ static int iphone_pmu_get_regs(int reg, uint8_t* out, int count) {
 }
 
 static int iphone_pmu_write_reg(int reg, int data, int verify) {
-	uint8_t command[2];
 	uint8_t buffer = 0;
 
-	struct i2c_msg xfer[2];
-
-	command[0] = reg;
-	command[1] = data;
-
-	xfer[0].addr = PMU_SETADDR;
-	xfer[0].flags = 0;
-	xfer[0].len = sizeof(command);
-	xfer[0].buf = (u8 *)command;
-
-	i2c_transfer(pmu_i2c->adapter, xfer, 1);
+	i2c_smbus_write_byte_data(pmu_i2c, reg, data);
 
 	if(!verify)
 		return 0;
