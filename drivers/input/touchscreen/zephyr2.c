@@ -1160,8 +1160,8 @@ int z2_setup(const u8* constructedFirmware, int constructedFirmwareLen, const u8
 	}
 
 
-	SensorWidth = *((u32*)&reportBuffer[0]);
-	SensorHeight = *((u32*)&reportBuffer[4]);
+	SensorWidth = (9000 - *((u32*)&reportBuffer[0])) * 84 / 73;
+	SensorHeight = (13850 - *((u32*)&reportBuffer[4])) * 84 / 73;
 
 	printk("Family ID                : 0x%x\n", FamilyID);
 	printk("Sensor rows              : 0x%x\n", SensorRows);
@@ -1243,6 +1243,8 @@ int z2_setup(const u8* constructedFirmware, int constructedFirmwareLen, const u8
 	//spin_lock_init(&z2_readFrame_lock);
 
 	FirmwareLoaded = true;
+
+	z2_readFrame();
 
 	return 0;
 }

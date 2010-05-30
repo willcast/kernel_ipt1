@@ -288,8 +288,8 @@ int multitouch_setup(const u8* ASpeedFirmware, int ASpeedFirmwareLen, const u8* 
 			return -1;
 		}
 
-		SensorWidth = *((u32*)&reportBuffer[0]);
-		SensorHeight = *((u32*)&reportBuffer[4]);
+		SensorWidth = (9000 - *((u32*)&reportBuffer[0])) * 84 / 73;
+		SensorHeight = (13850 - *((u32*)&reportBuffer[4])) * 84 / 73;
 	}
 
 	printk("Family ID                : 0x%x\n", FamilyID);
@@ -360,6 +360,8 @@ int multitouch_setup(const u8* ASpeedFirmware, int ASpeedFirmwareLen, const u8* 
 	spin_lock_init(&GotATNLock);
 
 	FirmwareLoaded = true;
+
+	readFrame();
 
 	return 0;
 }
