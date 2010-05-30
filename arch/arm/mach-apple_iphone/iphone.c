@@ -254,7 +254,6 @@ void __init iphone_init(void)
 	platform_device_register(&iphone_dma);
 	platform_device_register(&iphone_nand);
 	platform_device_register(&iphone_i2c);
-	platform_device_register(&s3c_device_usb_hsotg);
 }
 
 MACHINE_START(APPLE_IPHONE, "Apple iPhone")
