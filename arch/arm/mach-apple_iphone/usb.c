@@ -157,12 +157,14 @@ static int __init iphone_usb_init(void)
 		goto out_android_storage;
 #endif
 	return 0;
+#ifdef CONFIG_USB_ANDROID
 out_android_storage:
 	platform_device_unregister(&android_usb_storage);
 out_android_ether:
 	platform_device_unregister(&android_usb_ether);
 out_s3c:
 	platform_device_unregister(&s3c_device_usb_hsotg);
+#endif
 out:
 	printk(KERN_INFO "iphone-usb: Initialization failed.");
 	return ret;
@@ -170,10 +172,12 @@ out:
 
 static void __exit iphone_usb_exit(void)
 {
-	platform_device_unregister(&s3c_device_usb_hsotg);
-	platform_device_unregister(&android_usb_ether);
-	platform_device_unregister(&android_usb_storage);
+#ifdef CONFIG_USB_ANDROID
 	platform_device_unregister(&android_usb);
+	platform_device_unregister(&android_usb_storage);
+	platform_device_unregister(&android_usb_ether);
+#endif
+	platform_device_unregister(&s3c_device_usb_hsotg);
 }
 
 module_init(iphone_usb_init);
