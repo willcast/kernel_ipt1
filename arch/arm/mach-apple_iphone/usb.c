@@ -80,6 +80,9 @@ struct android_usb_platform_data android_usb_config = {
 #ifdef CONFIG_IPHONE_2G
 	.product_name		= "iPhone2G",
 #endif
+#ifdef CONFIG_IPODTOUCH_1G
+	.product_name		= "iPodTouch1G",
+#endif
 
 	//.vendor_id			= TODO,
 	//.product_id			= 0x1234,
@@ -111,6 +114,10 @@ struct usb_mass_storage_platform_data android_usb_storage_config = {
 
 #ifdef CONFIG_IPHONE_2G
 	.product	= "iPhone2G",
+#endif
+
+#ifdef CONFIG_IPODTOUCH_1G
+	.product	= "iPodTouch1G",
 #endif
 
 	.release	= 1,
