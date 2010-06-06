@@ -9,6 +9,8 @@ source "drivers/char/agp/Kconfig"
 
 source "drivers/gpu/vga/Kconfig"
 
+source "drivers/gpu/mbx/Kconfig"
+
 source "drivers/gpu/drm/Kconfig"
 
 config VGASTATE

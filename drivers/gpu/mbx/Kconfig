@@ -1,0 +1,9 @@
+#
+# Drm device configuration
+#
+# This driver provides support for the
+# Direct Rendering Infrastructure (DRI) in XFree86 4.1.0 and higher.
+#
+menuconfig IPHONE_MBX
+        tristate "PowerVR MBX Kernel Driver"
+        depends on (IPHONE_2G || IPHONE_3G)
