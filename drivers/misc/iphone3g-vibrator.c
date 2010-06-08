@@ -29,32 +29,55 @@ extern int timer_on_off(int timer_id, int on_off);
 extern u64 iphone_microtime(void);
 
 static u64 iphone_vibrator_end;
+static int iphone_vibrator_stop;
+static int iphone_vibrator_last_timeout;
+static u32 iphone_vibrator_waiting;
+static spinlock_t iphone_queue_running = SPIN_LOCK_UNLOCKED;
 
 void iphone_vibrator_enable(struct timed_output_dev *iphone_vibrator_dev, int timeout) {
 	u32 count;
 	u32 countRun;
 	int prescaler;
+	int id;
+
+	id = ++iphone_vibrator_waiting;
+
+	iphone_vibrator_stop = 1;
+
+	while(spin_is_locked(&iphone_queue_running)) {
+		if (id != iphone_vibrator_waiting)
+			return;
+		msleep(100);
+	}
+
+	if (id != iphone_vibrator_waiting)
+		return;
+
+	iphone_vibrator_waiting = 0;
+	iphone_vibrator_stop = 0;
+
+	spin_lock(&iphone_queue_running);
 
 	if (timeout < 0) {
-		iphone_vibrator_end = 0;
 		timer_init(VibratorTimer, 0, 1, 0, 0, 0, 0, 0, 0, 0);
 		timer_on_off(VibratorTimer, 1);
-		return;
+		goto out;
 	}
 
 	if (timeout < 1) {
-		iphone_vibrator_end = 0;
-		timer_init(VibratorTimer, 0, 1, 0, 0, 0, 0, 1, 0, 0);
-		timer_on_off(VibratorTimer, 1);
+		if (iphone_vibrator_last_timeout<0) {
+			timer_init(VibratorTimer, 0, 1, 0, 0, 0, 0, 1, 0, 0);
+			timer_on_off(VibratorTimer, 1);
+		}
 		timer_on_off(VibratorTimer, 0);
-		return;
+		goto out;
 	}
 
 	timeout *= 1000;
 
 	iphone_vibrator_end = iphone_microtime() + timeout;
         count = timeout * (TicksPerSec/1000000);
-        while(1) {
+        while(!iphone_vibrator_stop) {
                 countRun = count;
                 if (count > TicksPerSec)
                         countRun = TicksPerSec;
@@ -68,12 +91,15 @@ void iphone_vibrator_enable(struct timed_output_dev *iphone_vibrator_dev, int ti
 		timer_init(VibratorTimer, 0, countRun, prescaler - 1, 0, 0, 0, 0, 1, 0);
                 timer_on_off(VibratorTimer, 1);
                 if (TicksPerSec > count)
-			break;
+			goto out;
                 count -= TicksPerSec;
                 msleep(1000);
         }
 
+out:
+	iphone_vibrator_last_timeout = timeout;
 	iphone_vibrator_end = 0;
+	spin_unlock(&iphone_queue_running);
 }
 
 int iphone_vibrator_get_time(struct timed_output_dev *iphone_vibrator_dev) {
