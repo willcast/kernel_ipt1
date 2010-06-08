@@ -85,7 +85,7 @@ int iphone_vibrator_get_time(struct timed_output_dev *iphone_vibrator_dev) {
 }
 
 struct timed_output_dev iphone_vibrator_dev = {
-        .name = "iphone3g-vibrator",
+        .name = "vibrator",
         .enable = iphone_vibrator_enable,
         .get_time = iphone_vibrator_get_time,
 };
