@@ -142,6 +142,10 @@ config ICS932S401
 	  This driver can also be built as a module. If so, the module
 	  will be called ics932s401.
 
+config IPHONE_3G_VIBRATOR
+	tristate "iPhone 3G Vibrator"
+	depends on IPHONE_3G
+
 config ATMEL_SSC
 	tristate "Device driver for Atmel SSC peripheral"
 	depends on AVR32 || ARCH_AT91
