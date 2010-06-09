@@ -106,6 +106,8 @@ static int SensorRegionDescriptorLen;
 static u8* SensorRegionParam;
 static int SensorRegionParamLen;
 
+static u8 SensorMinPressure = 125;
+
 static int CurNOP;
 
 static bool FirmwareLoaded = false;
@@ -333,9 +335,12 @@ static void newPacket(const u8* data, int len)
 		input_report_abs(input_dev, ABS_MT_WIDTH_MAJOR, finger->size_major);
 		input_report_abs(input_dev, ABS_MT_WIDTH_MINOR, finger->size_minor);
 		input_report_abs(input_dev, ABS_MT_ORIENTATION, MAX_FINGER_ORIENTATION - finger->orientation);
-		input_report_abs(input_dev, ABS_MT_POSITION_X, finger->x);
-		input_report_abs(input_dev, ABS_MT_POSITION_Y, SensorHeight - finger->y);
 		input_report_abs(input_dev, ABS_MT_TRACKING_ID, finger->id);
+		if (finger->force_minor > SensorMinPressure)
+		{
+			input_report_abs(input_dev, ABS_MT_POSITION_X, finger->x);
+			input_report_abs(input_dev, ABS_MT_POSITION_Y, SensorHeight - finger->y);
+		}
 		input_mt_sync(input_dev);
 		/*printk("zephyr2: finger %d -- id=%d, event=%d, X(%d/%d, vel: %d), Y(%d/%d, vel: %d), radii(%d, %d, %d, orientation: %d), force_minor: %d\n",
 				i, finger->id, finger->event,
@@ -353,9 +358,11 @@ static void newPacket(const u8* data, int len)
 	{
 		finger = (FingerData*)(data + (header->headerLen));
 
-		input_report_abs(input_dev, ABS_X, finger->x);
-		input_report_abs(input_dev, ABS_Y, SensorHeight - finger->y);
-		input_report_key(input_dev, BTN_TOUCH, finger->size_minor > 0);
+		if (finger->force_minor > SensorMinPressure) {
+			input_report_abs(input_dev, ABS_X, finger->x);
+			input_report_abs(input_dev, ABS_Y, SensorHeight - finger->y);
+			input_report_key(input_dev, BTN_TOUCH, finger->size_minor > 0);
+		}
 	}
 
 	input_sync(input_dev);
