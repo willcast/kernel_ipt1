@@ -437,6 +437,7 @@ static void newPacket(const u8* data, int len)
 			input_report_abs(input_dev, ABS_Y, SensorHeight - finger->y);
 			input_report_key(input_dev, BTN_TOUCH, finger->size_minor > 0);
 		}
+		else input_report_key(input_dev, BTN_TOUCH, 0);
 	}
 
 	input_sync(input_dev);
