@@ -414,7 +414,10 @@ static void newPacket(const u8* data, int len)
 			input_report_abs(input_dev, ABS_MT_POSITION_X, finger->x);
 			input_report_abs(input_dev, ABS_MT_POSITION_Y, SensorHeight - finger->y);
 		}
+		else input_report_key(input_dev, BTN_TOUCH, 0);
+
 		input_mt_sync(input_dev);
+
 /*		printk("multitouch: finger %d -- id=%d, event=%d, X(%d/%d, vel: %d), Y(%d/%d, vel: %d), radii(%d, %d, %d, orientation: %d), force_minor: %d\n",
 				i, finger->id, finger->event,
 				finger->x, SensorWidth, finger->rel_x,
