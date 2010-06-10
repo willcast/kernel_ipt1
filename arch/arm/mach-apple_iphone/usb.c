@@ -29,12 +29,15 @@
 
 #include "core.h"
 
+#define SZ_256K 256*1024
+
 static struct resource s3c_usb_hsotg_resources[] = {
 	[0] = {
 		.start	= S3C_PA_USB_HSOTG,
-		.end	= S3C_PA_USB_HSOTG + 0x10000 - 1,
+		.end	= S3C_PA_USB_HSOTG + SZ_256K - 1,
 		.flags	= IORESOURCE_MEM,
 	},
+
 	[1] = {
 		.start	= 0x13,
 		.end	= 0x13,
@@ -43,7 +46,11 @@ static struct resource s3c_usb_hsotg_resources[] = {
 };
 
 struct platform_device s3c_device_usb_hsotg = {
+#ifdef CONFIG_USB_GADGET_S3C_HSOTG
 	.name		= "s3c-hsotg",
+#else
+	.name		= "dwc_otg",
+#endif
 	.id		= -1,
 	.num_resources	= ARRAY_SIZE(s3c_usb_hsotg_resources),
 	.resource	= s3c_usb_hsotg_resources,

@@ -11,6 +11,7 @@
 
 #define IPHONE_USB_POWER    (0x200)
 #define IPHONE_USB_CLOCK    (0x2)
-#define IPHONE_USBPHY_CLOCK    (0x23)
+#define IPHONE_USBPHY_CLOCK (0x23)
+#define IPHONE_EDRAM_CLOCK  (0x1B)
 
 #endif

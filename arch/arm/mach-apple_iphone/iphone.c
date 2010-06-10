@@ -255,13 +255,6 @@ void __init iphone_init(void)
 	platform_device_register(&iphone_dma);
 	platform_device_register(&iphone_nand);
 	platform_device_register(&iphone_i2c);
-<<<<<<< HEAD
-	i2c_register_board_info(0, iphone_i2c0, ARRAY_SIZE(iphone_i2c0));
-	i2c_register_board_info(1, iphone_i2c1, ARRAY_SIZE(iphone_i2c1));
-	//init_iphone_usb();
-=======
-	platform_device_register(&s3c_device_usb_hsotg);
->>>>>>> bdc9bb8a0857a6cecb64bbd8dafe0a4f2fa24c26
 }
 
 MACHINE_START(APPLE_IPHONE, "Apple iPhone")
