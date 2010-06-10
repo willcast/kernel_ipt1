@@ -106,6 +106,8 @@ static int SensorRegionDescriptorLen;
 static u8* SensorRegionParam;
 static int SensorRegionParamLen;
 
+static u8 SensorMinPressure = 125;
+
 static int CurNOP;
 
 static bool FirmwareLoaded = false;
@@ -133,24 +135,6 @@ static bool getReportInfo(int id, u8* err, u16* len);
 static bool getReport(int id, u8* buffer, int* outLen);
 
 static void newPacket(const u8* data, int len);
-
-static bool MultitouchOn = false;
-
-void multitouch_on()
-{
-	if(MultitouchOn == true)
-		return;
-
-	// Power up the device (turn it off then on again. ;])
-	printk("zephyr2: Powering Up Multitouch!\n");
-	iphone_gpio_pin_output(MT_GPIO_POWER, 0);
-	msleep(200);
-
-	iphone_gpio_pin_output(MT_GPIO_POWER, 1);
-	msleep(15);
-
-	MultitouchOn = true;
-}
 
 static u32 z2_getU32(u8 *_buf)
 {
@@ -351,9 +335,12 @@ static void newPacket(const u8* data, int len)
 		input_report_abs(input_dev, ABS_MT_WIDTH_MAJOR, finger->size_major);
 		input_report_abs(input_dev, ABS_MT_WIDTH_MINOR, finger->size_minor);
 		input_report_abs(input_dev, ABS_MT_ORIENTATION, MAX_FINGER_ORIENTATION - finger->orientation);
-		input_report_abs(input_dev, ABS_MT_POSITION_X, finger->x);
-		input_report_abs(input_dev, ABS_MT_POSITION_Y, SensorHeight - finger->y);
 		input_report_abs(input_dev, ABS_MT_TRACKING_ID, finger->id);
+		if (finger->force_minor > SensorMinPressure)
+		{
+			input_report_abs(input_dev, ABS_MT_POSITION_X, finger->x);
+			input_report_abs(input_dev, ABS_MT_POSITION_Y, SensorHeight - finger->y);
+		}
 		input_mt_sync(input_dev);
 		/*printk("zephyr2: finger %d -- id=%d, event=%d, X(%d/%d, vel: %d), Y(%d/%d, vel: %d), radii(%d, %d, %d, orientation: %d), force_minor: %d\n",
 				i, finger->id, finger->event,
@@ -371,9 +358,12 @@ static void newPacket(const u8* data, int len)
 	{
 		finger = (FingerData*)(data + (header->headerLen));
 
-		input_report_abs(input_dev, ABS_X, finger->x);
-		input_report_abs(input_dev, ABS_Y, SensorHeight - finger->y);
-		input_report_key(input_dev, BTN_TOUCH, finger->size_minor > 0);
+		if (finger->force_minor > SensorMinPressure) {
+			input_report_abs(input_dev, ABS_X, finger->x);
+			input_report_abs(input_dev, ABS_Y, SensorHeight - finger->y);
+			input_report_key(input_dev, BTN_TOUCH, finger->size_minor > 0);
+		}
+		else input_report_key(input_dev, BTN_TOUCH, 0);
 	}
 
 	input_sync(input_dev);
@@ -1004,7 +994,13 @@ int z2_setup(const u8* constructedFirmware, int constructedFirmwareLen, const u8
 
 	request_irq(MT_ATN_INTERRUPT + IPHONE_GPIO_IRQS, z2_irq, IRQF_TRIGGER_FALLING, "iphone-multitouch", (void*) 0);
 
-	multitouch_on();
+	// Power up the device (turn it off then on again. ;])
+	printk("zephyr2: Powering Up Multitouch!\n");
+	iphone_gpio_pin_output(MT_GPIO_POWER, 0);
+	msleep(200);
+
+	iphone_gpio_pin_output(MT_GPIO_POWER, 1);
+	msleep(15);
 
 	for(i = 0; i < 4; ++i)
 	{
@@ -1172,8 +1168,8 @@ int z2_setup(const u8* constructedFirmware, int constructedFirmwareLen, const u8
 	}
 
 
-	SensorWidth = *((u32*)&reportBuffer[0]);
-	SensorHeight = *((u32*)&reportBuffer[4]);
+	SensorWidth = (9000 - *((u32*)&reportBuffer[0])) * 84 / 73;
+	SensorHeight = (13850 - *((u32*)&reportBuffer[4])) * 84 / 73;
 
 	printk("Family ID                : 0x%x\n", FamilyID);
 	printk("Sensor rows              : 0x%x\n", SensorRows);
@@ -1255,6 +1251,8 @@ int z2_setup(const u8* constructedFirmware, int constructedFirmwareLen, const u8
 	//spin_lock_init(&z2_readFrame_lock);
 
 	FirmwareLoaded = true;
+
+	z2_readFrame();
 
 	return 0;
 }

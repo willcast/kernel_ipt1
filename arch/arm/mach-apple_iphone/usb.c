@@ -87,6 +87,9 @@ struct android_usb_platform_data android_usb_config = {
 #ifdef CONFIG_IPHONE_2G
 	.product_name		= "iPhone2G",
 #endif
+#ifdef CONFIG_IPODTOUCH_1G
+	.product_name		= "iPodTouch1G",
+#endif
 
 	//.vendor_id			= TODO,
 	//.product_id			= 0x1234,
@@ -119,6 +122,9 @@ struct usb_mass_storage_platform_data android_usb_storage_config = {
 #ifdef CONFIG_IPHONE_2G
 	.product	= "iPhone2G",
 #endif
+#ifdef CONFIG_IPODTOUCH_1G
+	.product	= "iPodTouch1G",
+#endif
 
 	.release	= 1,
 
@@ -145,14 +151,48 @@ struct platform_device android_usb_ether = {
 };
 #endif
 
-
-void init_iphone_usb(void)
+static int __init iphone_usb_init(void)
 {
-	platform_device_register(&s3c_device_usb_hsotg);
+	int ret;
+	ret = platform_device_register(&s3c_device_usb_hsotg);
+	if (ret)
+		goto out;
 #ifdef CONFIG_USB_ANDROID
-	platform_device_register(&android_usb_ether);
-	platform_device_register(&android_usb_storage);
-	platform_device_register(&android_usb);
+	ret = platform_device_register(&android_usb_ether);
+	if (ret)
+		goto out_s3c;
+	ret = platform_device_register(&android_usb_storage);
+	if (ret)
+		goto out_android_ether;
+	ret = platform_device_register(&android_usb);
+	if (ret)
+		goto out_android_storage;
 #endif
+	return 0;
+
+#ifdef CONFIG_USB_ANDROID
+out_android_storage:
+	platform_device_unregister(&android_usb_storage);
+out_android_ether:
+	platform_device_unregister(&android_usb_ether);
+out_s3c:
+	platform_device_unregister(&s3c_device_usb_hsotg);
+#endif
+
+out:
+	printk(KERN_INFO "iphone-usb: Initialization failed.");
+	return ret;
 }
-module_init(init_iphone_usb);
+
+static void __exit iphone_usb_exit(void)
+{
+#ifdef CONFIG_USB_ANDROID
+	platform_device_unregister(&android_usb);
+	platform_device_unregister(&android_usb_storage);
+	platform_device_unregister(&android_usb_ether);
+#endif
+	platform_device_unregister(&s3c_device_usb_hsotg);
+}
+
+module_init(iphone_usb_init);
+module_exit(iphone_usb_exit);

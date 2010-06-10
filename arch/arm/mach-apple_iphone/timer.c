@@ -20,6 +20,9 @@
 // Constants
 #define EventTimer 4
 #define TicksPerSec 12000000
+#ifdef CONFIG_IPHONE_3G
+#define VibratorTimer 5
+#endif
 
 // Devices
 
@@ -34,11 +37,11 @@
 #define TIMER_4 0xA0
 #define TIMER_5 0xC0
 #define TIMER_6 0xE0
-#define TIMER_C1FIG 0
+#define TIMER_CONFIG 0
 #define TIMER_STATE 0x4
 #define TIMER_COUNT_BUFFER 0x8
-#define TIMER_UNKNOWN1 0xC
-#define TIMER_UNKNOWN2 0x10
+#define TIMER_COUNT_BUFFER2 0xC
+#define TIMER_PRESCALER 0x10
 #define TIMER_UNKNOWN3 0x14
 #define TIMER_TICKSHIGH 0x80
 #define TIMER_TICKSLOW 0x84
@@ -79,8 +82,8 @@ typedef struct TimerRegisters {
 	u32	config;
 	u32	state;
 	u32	count_buffer;
-	u32	unknown1;
-	u32	unknown2;
+	u32	count_buffer2;
+	u32	prescaler;
 	u32	cur_count;
 } TimerRegisters;
 
@@ -94,20 +97,20 @@ typedef struct TimerInfo {
 } TimerInfo;
 
 const TimerRegisters HWTimers[] = {
-		{	TIMER + TIMER_0 + TIMER_C1FIG, TIMER + TIMER_0 + TIMER_STATE, TIMER + TIMER_0 + TIMER_COUNT_BUFFER,
-			TIMER + TIMER_0 + TIMER_UNKNOWN1, TIMER + TIMER_0 + TIMER_UNKNOWN2, TIMER + TIMER_0 + TIMER_UNKNOWN3 },
-		{	TIMER + TIMER_1 + TIMER_C1FIG, TIMER + TIMER_1 + TIMER_STATE, TIMER + TIMER_1 + TIMER_COUNT_BUFFER,
-			TIMER + TIMER_1 + TIMER_UNKNOWN1, TIMER + TIMER_1 + TIMER_UNKNOWN2, TIMER + TIMER_1 + TIMER_UNKNOWN3 },
-		{	TIMER + TIMER_2 + TIMER_C1FIG, TIMER + TIMER_2 + TIMER_STATE, TIMER + TIMER_2 + TIMER_COUNT_BUFFER,
-			TIMER + TIMER_2 + TIMER_UNKNOWN1, TIMER + TIMER_2 + TIMER_UNKNOWN2, TIMER + TIMER_2 + TIMER_UNKNOWN3 },
-		{	TIMER + TIMER_3 + TIMER_C1FIG, TIMER + TIMER_3 + TIMER_STATE, TIMER + TIMER_3 + TIMER_COUNT_BUFFER,
-			TIMER + TIMER_3 + TIMER_UNKNOWN1, TIMER + TIMER_3 + TIMER_UNKNOWN2, TIMER + TIMER_3 + TIMER_UNKNOWN3 },
-		{	TIMER + TIMER_4 + TIMER_C1FIG, TIMER + TIMER_4 + TIMER_STATE, TIMER + TIMER_4 + TIMER_COUNT_BUFFER,
-			TIMER + TIMER_4 + TIMER_UNKNOWN1, TIMER + TIMER_4 + TIMER_UNKNOWN2, TIMER + TIMER_4 + TIMER_UNKNOWN3 },
-		{	TIMER + TIMER_5 + TIMER_C1FIG, TIMER + TIMER_5 + TIMER_STATE, TIMER + TIMER_5 + TIMER_COUNT_BUFFER,
-			TIMER + TIMER_5 + TIMER_UNKNOWN1, TIMER + TIMER_5 + TIMER_UNKNOWN2, TIMER + TIMER_5 + TIMER_UNKNOWN3 },
-		{	TIMER + TIMER_6 + TIMER_C1FIG, TIMER + TIMER_6 + TIMER_STATE, TIMER + TIMER_6 + TIMER_COUNT_BUFFER,
-			TIMER + TIMER_6 + TIMER_UNKNOWN1, TIMER + TIMER_6 + TIMER_UNKNOWN2, TIMER + TIMER_6 + TIMER_UNKNOWN3 }
+		{	TIMER + TIMER_0 + TIMER_CONFIG, TIMER + TIMER_0 + TIMER_STATE, TIMER + TIMER_0 + TIMER_COUNT_BUFFER,
+			TIMER + TIMER_0 + TIMER_COUNT_BUFFER2, TIMER + TIMER_0 + TIMER_PRESCALER, TIMER + TIMER_0 + TIMER_UNKNOWN3 },
+		{	TIMER + TIMER_1 + TIMER_CONFIG, TIMER + TIMER_1 + TIMER_STATE, TIMER + TIMER_1 + TIMER_COUNT_BUFFER,
+			TIMER + TIMER_1 + TIMER_COUNT_BUFFER2, TIMER + TIMER_1 + TIMER_PRESCALER, TIMER + TIMER_1 + TIMER_UNKNOWN3 },
+		{	TIMER + TIMER_2 + TIMER_CONFIG, TIMER + TIMER_2 + TIMER_STATE, TIMER + TIMER_2 + TIMER_COUNT_BUFFER,
+			TIMER + TIMER_2 + TIMER_COUNT_BUFFER2, TIMER + TIMER_2 + TIMER_PRESCALER, TIMER + TIMER_2 + TIMER_UNKNOWN3 },
+		{	TIMER + TIMER_3 + TIMER_CONFIG, TIMER + TIMER_3 + TIMER_STATE, TIMER + TIMER_3 + TIMER_COUNT_BUFFER,
+			TIMER + TIMER_3 + TIMER_COUNT_BUFFER2, TIMER + TIMER_3 + TIMER_PRESCALER, TIMER + TIMER_3 + TIMER_UNKNOWN3 },
+		{	TIMER + TIMER_4 + TIMER_CONFIG, TIMER + TIMER_4 + TIMER_STATE, TIMER + TIMER_4 + TIMER_COUNT_BUFFER,
+			TIMER + TIMER_4 + TIMER_COUNT_BUFFER2, TIMER + TIMER_4 + TIMER_PRESCALER, TIMER + TIMER_4 + TIMER_UNKNOWN3 },
+		{	TIMER + TIMER_5 + TIMER_CONFIG, TIMER + TIMER_5 + TIMER_STATE, TIMER + TIMER_5 + TIMER_COUNT_BUFFER,
+			TIMER + TIMER_5 + TIMER_COUNT_BUFFER2, TIMER + TIMER_5 + TIMER_PRESCALER, TIMER + TIMER_5 + TIMER_UNKNOWN3 },
+		{	TIMER + TIMER_6 + TIMER_CONFIG, TIMER + TIMER_6 + TIMER_STATE, TIMER + TIMER_6 + TIMER_COUNT_BUFFER,
+			TIMER + TIMER_6 + TIMER_COUNT_BUFFER2, TIMER + TIMER_6 + TIMER_PRESCALER, TIMER + TIMER_6 + TIMER_UNKNOWN3 }
 	};
 
 TimerInfo Timers[7];
@@ -196,7 +199,7 @@ static int timer_setup_clk(int timer_id, int type, int divider, u32 unknown1) {
 	return 0;
 }
 
-int timer_init(int timer_id, u32 interval, u32 unknown2, u32 z, int option24, int option28, int option11) {
+int timer_init(int timer_id, u32 interval, u32 interval2, u32 prescaler, u32 z, int option24, int option28, int option11, int option5, int interrupts) {
 	u32 config;
 
 	if(timer_id >= NUM_TIMERS || timer_id < 0) {
@@ -206,7 +209,10 @@ int timer_init(int timer_id, u32 interval, u32 unknown2, u32 z, int option24, in
 	/* need to turn it off, since we're messing with the settings */
 	timer_on_off(timer_id, 0);
 
-	config = 0x7000; /* set bits 12, 13, 14 */
+	if(interrupts)
+		config = 0x7000; /* set bits 12, 13, 14 */
+	else
+		config = 0;
 
 	/* these two options are only supported on timers 4, 5, 6 */
 	if(timer_id >= TIMER_Separator) {
@@ -216,13 +222,14 @@ int timer_init(int timer_id, u32 interval, u32 unknown2, u32 z, int option24, in
 	/* set the rest of the options */
 	config |= (Timers[timer_id].divider << 8)
 			| (z << 3)
+			| (option5 ? (1 << 5) : 0)
 			| (Timers[timer_id].option6 ? (1 << 6) : 0)
 			| (option11 ? (1 << 11) : 0);
 
 	__raw_writel(config, HWTimers[timer_id].config);
 	__raw_writel(interval, HWTimers[timer_id].count_buffer);
-	__raw_writel(__raw_readl(HWTimers[timer_id].unknown1), HWTimers[timer_id].unknown1);
-	__raw_writel(unknown2, HWTimers[timer_id].unknown2);
+	__raw_writel(interval2, HWTimers[timer_id].count_buffer2);
+	__raw_writel(prescaler, HWTimers[timer_id].prescaler);
 
 	// apply the settings
 	__raw_writel(TIMER_STATE_MANUALUPDATE, HWTimers[timer_id].state);
@@ -336,7 +343,7 @@ static void iphone_timer_set_mode(enum clock_event_mode mode,
 static int iphone_timer_set_next_event(unsigned long cycles,
 				    struct clock_event_device *evt)
 {
-	timer_init(EventTimer, cycles, 0, 0, 0, 0, 0);
+	timer_init(EventTimer, cycles, 0, 0, 0, 0, 0, 0, 0, 1);
 	return 0;
 }
 
