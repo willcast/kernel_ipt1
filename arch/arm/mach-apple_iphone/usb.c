@@ -29,8 +29,6 @@
 
 #include "core.h"
 
-#define SZ_256K 256*1024
-
 static struct resource s3c_usb_hsotg_resources[] = {
 	[0] = {
 		.start	= S3C_PA_USB_HSOTG,
@@ -54,6 +52,11 @@ struct platform_device s3c_device_usb_hsotg = {
 	.id		= -1,
 	.num_resources	= ARRAY_SIZE(s3c_usb_hsotg_resources),
 	.resource	= s3c_usb_hsotg_resources,
+
+	.dev = {
+		.dma_mask			= DMA_BIT_MASK(32),
+		.coherent_dma_mask	= DMA_BIT_MASK(32),
+	}
 };
 
 #ifdef CONFIG_USB_ANDROID
