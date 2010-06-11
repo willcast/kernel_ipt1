@@ -84,7 +84,7 @@ typedef struct MTSPISetting
 } MTSPISetting;
 
 const MTSPISetting MTNormalSpeed = {83000, 5, 10};
-const MTSPISetting MTFastSpeed = {4500000, 0, 10};
+const MTSPISetting MTFastSpeed = {4500000, 0, 5};
 
 static u8* OutputPacket;
 static u8* InputPacket;
@@ -106,7 +106,7 @@ static int SensorRegionDescriptorLen;
 static u8* SensorRegionParam;
 static int SensorRegionParamLen;
 
-static u8 SensorMinPressure = 125;
+static u8 SensorMinPressure = 100;
 
 static int CurNOP;
 
@@ -289,7 +289,7 @@ static u32 readRegister(u32 address)
 
 	//GotATN = 0;
 	z2_txrx(NORMAL_SPEED, tx, sizeof(tx), rx, sizeof(rx));
-	udelay(300);
+	//udelay(300);
 
 	return z2_longAck();
 }
@@ -307,7 +307,7 @@ static u32 writeRegister(u32 address, u32 value, u32 mask)
 
 	//GotATN = 0;
 	z2_txrx(NORMAL_SPEED, tx, sizeof(tx), rx, sizeof(rx));
-	udelay(300);
+	//udelay(300);
 
 	return z2_shortAck() == 0x4AD1;
 }
@@ -330,18 +330,32 @@ static void newPacket(const u8* data, int len)
 
 	for(i = 0; i < header->numFingers; ++i)
 	{
-		input_report_abs(input_dev, ABS_MT_TOUCH_MAJOR, finger->force_major);
-		input_report_abs(input_dev, ABS_MT_TOUCH_MINOR, finger->force_minor);
-		input_report_abs(input_dev, ABS_MT_WIDTH_MAJOR, finger->size_major);
-		input_report_abs(input_dev, ABS_MT_WIDTH_MINOR, finger->size_minor);
-		input_report_abs(input_dev, ABS_MT_ORIENTATION, MAX_FINGER_ORIENTATION - finger->orientation);
-		input_report_abs(input_dev, ABS_MT_TRACKING_ID, finger->id);
-		if (finger->force_minor > SensorMinPressure)
+		if(finger->force_major > SensorMinPressure)
 		{
+			finger->force_major -= SensorMinPressure;
+		}
+		else
+			finger->force_major = 0;
+
+		if(finger->force_minor > SensorMinPressure)
+		{
+			finger->force_minor -= SensorMinPressure;
+		}
+		else 
+			finger->force_minor = 0;
+
+		if(finger->force_major > 0 &&
+				finger->force_minor > 0)
+		{
+			input_report_abs(input_dev, ABS_MT_TOUCH_MAJOR, finger->force_major);
+			input_report_abs(input_dev, ABS_MT_TOUCH_MINOR, finger->force_minor);
+			input_report_abs(input_dev, ABS_MT_WIDTH_MAJOR, finger->size_major);
+			input_report_abs(input_dev, ABS_MT_WIDTH_MINOR, finger->size_minor);
+			input_report_abs(input_dev, ABS_MT_ORIENTATION, MAX_FINGER_ORIENTATION - finger->orientation);
+			input_report_abs(input_dev, ABS_MT_TRACKING_ID, finger->id);
 			input_report_abs(input_dev, ABS_MT_POSITION_X, finger->x);
 			input_report_abs(input_dev, ABS_MT_POSITION_Y, SensorHeight - finger->y);
 		}
-		else input_report_key(input_dev, BTN_TOUCH, 0);
 
 		input_mt_sync(input_dev);
 
@@ -354,7 +368,7 @@ static void newPacket(const u8* data, int len)
 
 		//framebuffer_draw_rect(0xFF0000, (finger->x * framebuffer_width()) / SensorWidth - 2 , ((SensorHeight - finger->y) * framebuffer_height()) / SensorHeight - 2, 4, 4);
 		//hexdump((u32) finger, sizeof(FingerData));*/
-		//
+		
 		finger = (FingerData*) (((u8*) finger) + header->fingerDataLen);
 	}
 
@@ -362,7 +376,7 @@ static void newPacket(const u8* data, int len)
 	{
 		finger = (FingerData*)(data + (header->headerLen));
 
-		if (finger->force_minor > SensorMinPressure) {
+		if (finger->force_minor > 0) {
 			input_report_abs(input_dev, ABS_X, finger->x);
 			input_report_abs(input_dev, ABS_Y, SensorHeight - finger->y);
 			input_report_key(input_dev, BTN_TOUCH, finger->size_minor > 0);
@@ -467,6 +481,7 @@ static bool z2_readFrameLength(int* len)
 	if((rx[14] | (rx[15] << 8)) != checksum)
 	{
 		udelay(1000);
+		//msleep(1);
 		return false;
 	}
 
@@ -571,7 +586,7 @@ static int longControlRead(int id, u8* buffer, int size)
 
 	z2_txrx(NORMAL_SPEED, GetInfoPacket, 16, InputPacket, 16);
 
-	udelay(25);
+	//udelay(25);
 
 	GetInfoPacket[2] = 1;
 	GetInfoPacket[14] = 0;
@@ -617,9 +632,9 @@ static bool getReportInfo(int id, u8* err, u16* len)
 
 		z2_txrx(NORMAL_SPEED, tx, sizeof(tx), rx, sizeof(rx));
 
-		udelay(25);
+		//udelay(25);
 
-		z2_txrx(NORMAL_SPEED, tx, sizeof(tx), rx, sizeof(rx));
+		//z2_txrx(NORMAL_SPEED, tx, sizeof(tx), rx, sizeof(rx));
 
 		if(rx[0] != 0xE3)
 			continue;
@@ -691,7 +706,7 @@ static bool determineInterfaceVersion(void)
 	tx[14] = checksum & 0xFF;
 	tx[15] = (checksum >> 8) & 0xFF;
 
-	z2_txrx(NORMAL_SPEED, tx, sizeof(tx), rx, sizeof(rx));
+	//z2_txrx(NORMAL_SPEED, tx, sizeof(tx), rx, sizeof(rx));
 
 	for(try = 0; try < 4; ++try)
 	{
@@ -996,7 +1011,11 @@ int z2_setup(const u8* constructedFirmware, int constructedFirmwareLen, const u8
 	GetInfoPacket = (u8*) kmalloc(MAX_BUFFER_SIZE, GFP_KERNEL);
 	GetResultPacket = (u8*) kmalloc(MAX_BUFFER_SIZE, GFP_KERNEL);
 
-	request_irq(MT_ATN_INTERRUPT + IPHONE_GPIO_IRQS, z2_irq, IRQF_TRIGGER_FALLING, "iphone-multitouch", (void*) 0);
+	if(request_irq(MT_ATN_INTERRUPT + IPHONE_GPIO_IRQS, z2_irq, IRQF_TRIGGER_FALLING, "iphone-multitouch", (void*) 0))
+	{
+		printk("zephyr2: Failed to request z2 interrupt.\n");
+		return -1;
+	}
 
 	// Power up the device (turn it off then on again. ;])
 	printk("zephyr2: Powering Up Multitouch!\n");

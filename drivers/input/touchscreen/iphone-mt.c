@@ -403,18 +403,32 @@ static void newPacket(const u8* data, int len)
 
 	for(i = 0; i < header->numFingers; ++i)
 	{
-		input_report_abs(input_dev, ABS_MT_TOUCH_MAJOR, finger->force_major);
-		input_report_abs(input_dev, ABS_MT_TOUCH_MINOR, finger->force_minor);
-		input_report_abs(input_dev, ABS_MT_WIDTH_MAJOR, finger->size_major);
-		input_report_abs(input_dev, ABS_MT_WIDTH_MINOR, finger->size_minor);
-		input_report_abs(input_dev, ABS_MT_ORIENTATION, MAX_FINGER_ORIENTATION - finger->orientation);
-		input_report_abs(input_dev, ABS_MT_TRACKING_ID, finger->id);
-		if (finger->force_minor > SensorMinPressure)
+		if(finger->force_major > SensorMinPressure)
 		{
+			finger->force_major -= SensorMinPressure;
+		}
+		else
+			finger->force_major = 0;
+
+		if(finger->force_minor > SensorMinPressure)
+		{
+			finger->force_minor -= SensorMinPressure;
+		}
+		else 
+			finger->force_minor = 0;
+
+		if(finger->force_major > 0 || 
+				finger->force_minor > 0)
+		{
+			input_report_abs(input_dev, ABS_MT_TOUCH_MAJOR, finger->force_major);
+			input_report_abs(input_dev, ABS_MT_TOUCH_MINOR, finger->force_minor);
+			input_report_abs(input_dev, ABS_MT_WIDTH_MAJOR, finger->size_major);
+			input_report_abs(input_dev, ABS_MT_WIDTH_MINOR, finger->size_minor);
+			input_report_abs(input_dev, ABS_MT_ORIENTATION, MAX_FINGER_ORIENTATION - finger->orientation);
+			input_report_abs(input_dev, ABS_MT_TRACKING_ID, finger->id);
 			input_report_abs(input_dev, ABS_MT_POSITION_X, finger->x);
 			input_report_abs(input_dev, ABS_MT_POSITION_Y, SensorHeight - finger->y);
 		}
-		else input_report_key(input_dev, BTN_TOUCH, 0);
 
 		input_mt_sync(input_dev);
 
@@ -427,6 +441,7 @@ static void newPacket(const u8* data, int len)
 
 		//framebuffer_draw_rect(0xFF0000, (finger->x * framebuffer_width()) / SensorWidth - 2 , ((SensorHeight - finger->y) * framebuffer_height()) / SensorHeight - 2, 4, 4);
 		//hexdump((u32) finger, sizeof(FingerData));*/
+		
 		finger = (FingerData*) (((u8*) finger) + header->fingerDataLen);
 	}
 
@@ -434,7 +449,7 @@ static void newPacket(const u8* data, int len)
 	{
 		finger = (FingerData*)(data + (header->headerLen));
 
-		if (finger->force_minor > SensorMinPressure)
+		if (finger->force_minor > 0)
 		{
 			input_report_abs(input_dev, ABS_X, finger->x);
 			input_report_abs(input_dev, ABS_Y, SensorHeight - finger->y);
