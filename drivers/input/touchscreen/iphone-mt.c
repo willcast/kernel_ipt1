@@ -96,7 +96,7 @@ static int SensorRegionDescriptorLen;
 static u8* SensorRegionParam;
 static int SensorRegionParamLen;
 
-static u8 SensorMinPressure = 125;
+static u8 SensorMinPressure = 100;
 
 // This is flipped between 0x64 and 0x65 for every transaction
 static int CurNOP;
