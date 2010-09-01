@@ -21,9 +21,7 @@
 #include <linux/kernel.h>
 #include <linux/string.h>
 #include <linux/platform_device.h>
-#ifdef CONFIG_USB_ANDROID
 #include <linux/usb/android_composite.h>
-#endif
 
 #include <mach/map.h>
 
@@ -37,6 +35,12 @@ static struct resource s3c_usb_hsotg_resources[] = {
 	},
 
 	[1] = {
+		.start	= S3C_PA_USB_HSPHY,
+		.end	= S3C_PA_USB_HSPHY + SZ_256K - 1,
+		.flags	= IORESOURCE_MEM,
+	},
+
+	[2] = {
 		.start	= 0x13,
 		.end	= 0x13,
 		.flags	= IORESOURCE_IRQ,

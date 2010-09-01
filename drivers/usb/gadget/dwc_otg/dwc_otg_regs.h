@@ -34,6 +34,8 @@
 #ifndef __DWC_OTG_REGS_H__
 #define __DWC_OTG_REGS_H__
 
+#include <linux/types.h>
+
 /**
  * @file
  *
@@ -68,6 +70,11 @@
 
 /** Maximum number of Endpoints/HostChannels */
 #define MAX_EPS_CHANNELS 16
+
+#define DWC_EP_TYPE_CONTROL 0
+#define DWC_EP_TYPE_ISOC 1
+#define DWC_EP_TYPE_BULK 2
+#define DWC_EP_TYPE_INTERRUPT 3
 
 /****************************************************************************/
 /** DWC_otg Core registers .  
@@ -413,7 +420,7 @@ typedef union grstctl_data
 		 * Machine is in IDLE condition. */
 		unsigned ahbidle : 1;				 
 	} b;
-} grstctl_t;
+} grstctl_data_t;
 
 
 /**
@@ -493,7 +500,7 @@ typedef union gintsts_data
 		unsigned eopframe : 1;
 		unsigned intokenrx : 1;
 		unsigned epmismatch : 1;
-		unsigned inepint: 1;
+		unsigned inepintr: 1;
 		unsigned outepintr : 1;
 		unsigned incomplisoin : 1;
 		unsigned incomplisoout : 1;
@@ -866,6 +873,8 @@ typedef union dcfg_data
 	{
 		/** Device Speed */
 		unsigned devspd : 2;
+#define DWC_DCFG_HIGH_SPEED 0
+
 		/** Non Zero Length Status OUT Handshake */
 		unsigned nzstsouthshk : 1;
 #define DWC_DCFG_SEND_STALL 1
@@ -873,6 +882,7 @@ typedef union dcfg_data
 		unsigned reserved3 : 1;
 		/** Device Addresses */
 		unsigned devaddr : 7;
+#define DWC_DCFG_DEVADDR_MASK 0x7f
 		/** Periodic Frame Interval */
 		unsigned perfrint : 2;
 #define DWC_DCFG_FRAME_INTERVAL_80 0
@@ -1450,50 +1460,6 @@ typedef union desc_sts_data
 		/** Buffer Status */
 		unsigned bs : 2;
 		} b;
-
-#ifdef DWC_EN_ISOC
-		/** iso out quadlet bits */
-		struct {
-		/** Received number of bytes */
-		unsigned rxbytes : 11;
-
-		unsigned reserved11 : 1;
-		/** Frame Number */
-		unsigned framenum : 11;
-		/** Received ISO Data PID */
-		unsigned pid : 2;
-		/** Interrupt On Complete */
-		unsigned ioc : 1;
-		/** Short Packet */
-		unsigned sp : 1;
-		/** Last */
-		unsigned l : 1;
-		/** Receive Status */
-		unsigned rxsts : 2;
-		/** Buffer Status */
-		unsigned bs : 2;
-		} b_iso_out;
-		
-		/** iso in quadlet bits */
-		struct {
-		/** Transmited number of bytes */
-		unsigned txbytes : 12;
-		/** Frame Number */
-		unsigned framenum : 11;
-		/** Transmited ISO Data PID */
-		unsigned pid : 2;
-		/** Interrupt On Complete */
-		unsigned ioc : 1;
-		/** Short Packet */
-		unsigned sp : 1;
-		/** Last */
-		unsigned l : 1;
-		/** Transmit Status */
-		unsigned txsts : 2;
-		/** Buffer Status */
-		unsigned bs : 2;
-		} b_iso_in;
-#endif //DWC_EN_ISOC
 } desc_sts_data_t;
 
 /** 
@@ -2074,5 +2040,93 @@ typedef union pcgcctl_data
 	} b;
 } pcgcctl_data_t;
 
+// Ricky26
+
+/**
+ * This union represents the inbuild PHY's power register.
+ */
+typedef union phypwr_data
+{
+	/** raw register data */
+	uint32_t d32;
+
+	/** register bits */
+	struct
+	{
+		/** Force Suspend */
+		unsigned forcesusp : 1;
+
+		/** Power Down PLL */
+		unsigned pllpwrdwn : 1;
+
+		/** Power Down XO */
+		unsigned xopwrdwn : 1;
+
+		/** Power Down Analogue */
+	    unsigned apwrdwn : 1;
+
+		/** Power Down Unknown */
+		unsigned pwrdwnunk : 1;
+
+		unsigned reserved : 27;	
+
+	} b;
+
+} phypwr_data_t;
+
+/**
+ * This union represents the inbuild PHY's clock register.
+ */
+typedef union phyclk_data
+{
+	/** raw register data */
+	uint32_t d32;
+
+	/** register bits */
+	struct
+	{
+		unsigned clksel : 3;
+#define DWC_OTG_PHYCLK_CLKSEL_MASK 0x3
+#define DWC_OTG_PHYCLK_CLKSEL_48MHZ 0x0
+#define DWC_OTG_PHYCLK_CLKSEL_12MHZ 0x2
+#define DWC_OTG_PHYCLK_CLKSEL_24MHZ 0x3
+
+		unsigned reserved : 29;	
+
+	} b;
+
+} phyclk_data_t;
+
+/**
+ * This union represents the inbuild PHY's reset control register.
+ */
+typedef union rstcon_data
+{
+	/** raw register data */
+	uint32_t d32;
+
+	/** register bits */
+	struct
+	{
+		/** PHY Software Reset */
+		unsigned physwrst : 1;
+
+		/** Link Software Reset */
+		unsigned lnkswrst : 1;
+
+		/** PHY & Link Software Reset */
+		unsigned phylnkswrst : 1;
+
+		unsigned reserved : 29;	
+	} b;
+
+} rstcon_data_t;
+
+typedef struct dwc_otg_phy_regs
+{
+	volatile uint32_t phypwr;
+	volatile uint32_t phyclk;
+	volatile uint32_t rstcon;
+} dwc_otg_phy_regs_t;
 
 #endif

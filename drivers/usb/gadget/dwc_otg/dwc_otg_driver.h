@@ -1,82 +1,89 @@
-/* ==========================================================================
- * $File: //dwh/usb_iip/dev/software/otg_ipmate/linux/drivers/dwc_otg_driver.h $
- * $Revision: #2 $
- * $Date: 2007/02/07 $
- * $Change: 791271 $
- *
- * Synopsys HS OTG Linux Software Driver and documentation (hereinafter,
- * "Software") is an Unsupported proprietary work of Synopsys, Inc. unless
- * otherwise expressly agreed to in writing between Synopsys and you.
- *
- * The Software IS NOT an item of Licensed Software or Licensed Product under
- * any End User Software License Agreement or Agreement for Licensed Product
- * with Synopsys or any supplement thereto. You are permitted to use and
- * redistribute this Software in source and binary forms, with or without
- * modification, provided that redistributions of source code must retain this
- * notice. You may not view, use, disclose, copy or distribute this file or
- * any information contained herein except pursuant to this license grant from
- * Synopsys. If you do not agree with this notice, including the disclaimer
- * below, then you are not authorized to use the Software.
- *
- * THIS SOFTWARE IS BEING DISTRIBUTED BY SYNOPSYS SOLELY ON AN "AS IS" BASIS
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE HEREBY DISCLAIMED. IN NO EVENT SHALL SYNOPSYS BE LIABLE FOR ANY DIRECT,
- * INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
- * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
- * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH
- * DAMAGE.
- * ========================================================================== */
+#ifndef  __DWC_OTG_DRIVER_H__
+#define  __DWC_OTG_DRIVER_H__
 
-#if !defined(__DWC_OTG_DRIVER_H__)
-#define __DWC_OTG_DRIVER_H__
+#include <linux/platform_device.h>
 
-/** @file
- * This file contains the interface to the Linux driver.
- */
-#include "dwc_otg_cil.h"
-
-/* Type declarations */
-struct dwc_otg_pcd;
-struct dwc_otg_hcd;
+#include "dwc_otg.h"
+#include "dwc_otg_core.h"
+#include "dwc_otg_device.h"
 
 /**
- * This structure is a wrapper that encapsulates the driver components used to
- * manage a single DWC_otg controller.
+ * @file dwc_otg_driver.h
+ *
+ * This file contains the driver-framework specific parts of the driver.
+ *
+ * For instance, only this file and its sister code file need be altered
+ * to use this driver with standard device structures (instead of the 
+ * platform_device structures used here).
  */
-typedef struct dwc_otg_device
+
+/**
+ * DWC OTG IO Mapping Structure
+ *
+ * This structure is used to store current IO mappings,
+ * so that they can be released once they are finished with.
+ */
+typedef struct dwc_otg_iomapping
 {
-	/** Base address returned from ioremap() */
-	void *base;
+	/** The remapped address. Stored so it can be unmapped. */
+	void *address;
 
-	/** Pointer to the core interface structure. */
-	dwc_otg_core_if_t *core_if;
+	/** Physical memory address. Stored to allow memory to be released. */
+	resource_size_t physical_address; 
 
-	/** Register offset for Diagnostic API.*/
-	uint32_t reg_offset;
+	/** Length of memory mapping. Stored to allow memory to be released. */
+	resource_size_t length;
 
-	/** Pointer to the PCD structure. */
-	struct dwc_otg_pcd *pcd;
+} dwc_otg_iomapping_t;
 
-	/** Pointer to the HCD structure. */
-	struct dwc_otg_hcd *hcd;
+/**
+ * dwc_otg_ioremap
+ *
+ * Remaps a IORESOURCE_MEM resource into a dwc_otg_iomapping.
+ * Returns 0 on success.
+ */
+int dwc_otg_ioremap(dwc_otg_iomapping_t *_map, struct resource *_rsrc);
 
-	/** Flag to indicate whether the common IRQ handler is installed. */
-	uint8_t common_irq_installed;
+/**
+ * dwc_otg_iounmap
+ *
+ * Releases a previously mapped dwc_otg_iomapping.
+ */
+void dwc_otg_iounmap(dwc_otg_iomapping_t *_map);
 
-    /** Interrupt request number. */
-	unsigned int irq;
+/**
+ * DWC OTG Driver Structure
+ *
+ * This structure stores any information required for the
+ * platform driver.
+ */
+typedef struct dwc_otg_driver_struct
+{
+	/** The allocated IRQ. Stored here so that it can be deallocated. */
+	int irq;
 
-    /** Physical address of Control and Status registers, used by
-     *  release_mem_region().
-     */
-	resource_size_t phys_addr;
+	/** The IO mapping for the main registers. */
+	dwc_otg_iomapping_t registers;
 
-    /** Length of memory region, used by release_mem_region(). */
-	unsigned long base_len;
-} dwc_otg_device_t;
+	/** The IO mapping for the on-chip PHY's registers. */
+	dwc_otg_iomapping_t phy_registers;
 
-#endif
+	/** The core state and parameters. */
+	dwc_otg_core_t core;
+
+	/** Device mode state and parameters. */
+	dwc_otg_device_t device;
+
+} dwc_otg_driver_t;
+
+/**
+ * dwc_otg_driver_get
+ *
+ * Returns the dwc_otg_driver_t for the specified platform_device.
+ */
+static inline dwc_otg_driver_t* dwc_otg_driver_get(struct platform_device *_dev)
+{
+	return (dwc_otg_driver_t*)platform_get_drvdata(_dev);
+}
+
+#endif //__DWC_OTG_DRIVER_H__
