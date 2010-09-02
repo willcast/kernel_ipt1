@@ -96,7 +96,7 @@ static int SensorRegionDescriptorLen;
 static u8* SensorRegionParam;
 static int SensorRegionParamLen;
 
-static u8 SensorMinPressure = 125;
+static u8 SensorMinPressure = 100;
 
 // This is flipped between 0x64 and 0x65 for every transaction
 static int CurNOP;
@@ -399,8 +399,6 @@ static void newPacket(const u8* data, int len)
 	if(header->headerLen < 12)
 		printk("multitouch: no finger data in frame\n");
 
-//	printk("------START------\n");
-
 	for(i = 0; i < header->numFingers; ++i)
 	{
 		if(finger->force_major > SensorMinPressure)
@@ -432,16 +430,6 @@ static void newPacket(const u8* data, int len)
 
 		input_mt_sync(input_dev);
 
-/*		printk("multitouch: finger %d -- id=%d, event=%d, X(%d/%d, vel: %d), Y(%d/%d, vel: %d), radii(%d, %d, %d, orientation: %d), force_minor: %d\n",
-				i, finger->id, finger->event,
-				finger->x, SensorWidth, finger->rel_x,
-				finger->y, SensorHeight, finger->rel_y,
-				finger->force_major, finger->size_major, finger->size_minor, finger->orientation,
-				finger->force_minor);
-
-		//framebuffer_draw_rect(0xFF0000, (finger->x * framebuffer_width()) / SensorWidth - 2 , ((SensorHeight - finger->y) * framebuffer_height()) / SensorHeight - 2, 4, 4);
-		//hexdump((u32) finger, sizeof(FingerData));*/
-		
 		finger = (FingerData*) (((u8*) finger) + header->fingerDataLen);
 	}
 
@@ -459,8 +447,6 @@ static void newPacket(const u8* data, int len)
 	}
 
 	input_sync(input_dev);
-
-//	printk("-------END-------\n");
 }
 
 static int readFrame()

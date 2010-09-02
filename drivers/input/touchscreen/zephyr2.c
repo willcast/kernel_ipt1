@@ -251,9 +251,6 @@ static u16 z2_shortAck(void)
 
 	z2_makeU16(tx, 0x1aa1);
 
-	//while(GotATN == 0);
-	//	--GotATN;
-
 	z2_txrx(NORMAL_SPEED, tx, sizeof(tx), rx, sizeof(rx));
 
 	return z2_getU16(rx);
@@ -263,9 +260,6 @@ static u32 z2_longAck(void)
 {
 	u8 tx[8];
 	u8 rx[8];
-
-	//while(GotATN == 0);
-	//	--GotATN;
 
 	z2_makeU16(tx, 0x1aa1);
 
@@ -287,9 +281,7 @@ static u32 readRegister(u32 address)
 	z2_makeU32(tx+2, address);
 	z2_makeU16Sum(tx+2, 4);
 
-	//GotATN = 0;
 	z2_txrx(NORMAL_SPEED, tx, sizeof(tx), rx, sizeof(rx));
-	//udelay(300);
 
 	return z2_longAck();
 }
@@ -305,9 +297,7 @@ static u32 writeRegister(u32 address, u32 value, u32 mask)
 	z2_makeU32(tx+10, value);
 	z2_makeU16Sum(tx+2, sizeof(u32)*3);
 
-	//GotATN = 0;
 	z2_txrx(NORMAL_SPEED, tx, sizeof(tx), rx, sizeof(rx));
-	//udelay(300);
 
 	return z2_shortAck() == 0x4AD1;
 }
@@ -325,8 +315,6 @@ static void newPacket(const u8* data, int len)
 
 	if(header->headerLen < 12)
 		printk("zephyr2: no finger data in frame\n");
-
-	//	printk("------START------\n");
 
 	for(i = 0; i < header->numFingers; ++i)
 	{
@@ -359,16 +347,6 @@ static void newPacket(const u8* data, int len)
 
 		input_mt_sync(input_dev);
 
-		/*printk("zephyr2: finger %d -- id=%d, event=%d, X(%d/%d, vel: %d), Y(%d/%d, vel: %d), radii(%d, %d, %d, orientation: %d), force_minor: %d\n",
-				i, finger->id, finger->event,
-				finger->x, SensorWidth, finger->rel_x,
-				finger->y, SensorHeight, finger->rel_y,
-				finger->force_major, finger->size_major, finger->size_minor, finger->orientation,
-				finger->force_minor);
-
-		//framebuffer_draw_rect(0xFF0000, (finger->x * framebuffer_width()) / SensorWidth - 2 , ((SensorHeight - finger->y) * framebuffer_height()) / SensorHeight - 2, 4, 4);
-		//hexdump((u32) finger, sizeof(FingerData));*/
-		
 		finger = (FingerData*) (((u8*) finger) + header->fingerDataLen);
 	}
 
@@ -386,7 +364,6 @@ static void newPacket(const u8* data, int len)
 
 	input_sync(input_dev);
 
-	//	printk("-------END-------\n");
 }
 
 static bool readResultData(int len)
@@ -481,7 +458,6 @@ static bool z2_readFrameLength(int* len)
 	if((rx[14] | (rx[15] << 8)) != checksum)
 	{
 		udelay(1000);
-		//msleep(1);
 		return false;
 	}
 
@@ -586,8 +562,6 @@ static int longControlRead(int id, u8* buffer, int size)
 
 	z2_txrx(NORMAL_SPEED, GetInfoPacket, 16, InputPacket, 16);
 
-	//udelay(25);
-
 	GetInfoPacket[2] = 1;
 	GetInfoPacket[14] = 0;
 	GetInfoPacket[15] = 0;
@@ -631,10 +605,6 @@ static bool getReportInfo(int id, u8* err, u16* len)
 		tx[15] = (checksum >> 8) & 0xFF;
 
 		z2_txrx(NORMAL_SPEED, tx, sizeof(tx), rx, sizeof(rx));
-
-		//udelay(25);
-
-		//z2_txrx(NORMAL_SPEED, tx, sizeof(tx), rx, sizeof(rx));
 
 		if(rx[0] != 0xE3)
 			continue;
@@ -706,8 +676,6 @@ static bool determineInterfaceVersion(void)
 	tx[14] = checksum & 0xFF;
 	tx[15] = (checksum >> 8) & 0xFF;
 
-	//z2_txrx(NORMAL_SPEED, tx, sizeof(tx), rx, sizeof(rx));
-
 	for(try = 0; try < 4; ++try)
 	{
 		z2_txrx(NORMAL_SPEED, tx, sizeof(tx), rx, sizeof(rx));
@@ -747,7 +715,6 @@ static bool loadConstructedFirmware(const u8* firmware, int len)
 
 		printk("zephyr2: uploading firmware\n");
 
-		//                GotATN = 0;
 		z2_tx(FAST_SPEED, firmware, len);
 
 		udelay(300);
@@ -785,7 +752,6 @@ static int loadProxCal(const u8* firmware, int len)
 		{
 			printk("zephyr2: uploading prox calibration data packet\r\n");
 
-			//                        GotATN = 0;
 			z2_tx(FAST_SPEED, OutputPacket, toUpload + 0x10);
 			udelay(300);
 
@@ -826,7 +792,6 @@ static int loadCal(const u8* firmware, int len)
 		{
 			printk("zephyr2: uploading calibration data packet\r\n");
 
-			//                        GotATN = 0;
 			z2_tx(FAST_SPEED, OutputPacket, toUpload + 0x10);
 			udelay(300);
 
@@ -855,7 +820,6 @@ static u32 z2_getCalibration(void)
 
 	printk("zephyr2: requesting calibration...\n");
 
-	//	GotATN = 0;
 	z2_txrx(NORMAL_SPEED, tx, sizeof(tx), rx, sizeof(rx));
 
 	msleep(65);
@@ -1270,8 +1234,6 @@ int z2_setup(const u8* constructedFirmware, int constructedFirmwareLen, const u8
 	}
 
 	CurNOP = 1;
-
-	//spin_lock_init(&z2_readFrame_lock);
 
 	FirmwareLoaded = true;
 
