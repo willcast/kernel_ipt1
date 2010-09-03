@@ -193,6 +193,9 @@ int dwc_otg_gadget_enable_ep(struct usb_ep *_ep, const struct usb_endpoint_descr
 {
 	dwc_otg_gadget_ep_t *ep = dwc_otg_gadget_get_ep(_ep);
 	dwc_otg_core_enable_ep(dwc_otg_gadget_device->core, ep->ep, (struct usb_endpoint_descriptor*)_desc);
+
+	DWC_VERBOSE("%s(%p, %p)\n", __func__, _ep, _desc);
+
 	return 0;
 }
 
@@ -202,6 +205,9 @@ int dwc_otg_gadget_enable_ep(struct usb_ep *_ep, const struct usb_endpoint_descr
 int dwc_otg_gadget_disable_ep(struct usb_ep *_ep)
 {
 	dwc_otg_gadget_ep_t *ep = dwc_otg_gadget_get_ep(_ep);
+	
+	DWC_VERBOSE("%s(%p)\n", __func__, _ep);
+
 	dwc_otg_core_disable_ep(dwc_otg_gadget_device->core, ep->ep);
 	return 0;
 }
@@ -234,19 +240,13 @@ void dwc_otg_gadget_free_request(struct usb_ep *_ep, struct usb_request *_req)
 
 	DWC_VERBOSE("%s(%p, %p)\n", __func__, _ep, _req);
 
-	if(req->dwc_request.active)
+	/*if(!req->dwc_request.active)
 	{
-		// TODO: fix this.
-		//req->free = 1;
-		return;
-	}
+		if(req->free_dma)
+			dma_free_coherent(NULL, req->dwc_request.buffer_length, req->dwc_request.dma_buffer, req->dwc_request.dma_address);
 
-	if(_req->dma == 0)
-	{
-		dma_free_coherent(NULL, req->dwc_request.buffer_length, req->dwc_request.dma_buffer, req->dwc_request.dma_address);
-	}
-
-	kfree(req);
+		kfree(req);
+	}*/
 }
 
 static dwc_otg_core_request_t dwc_otg_gadget_zlp_request = {
@@ -263,37 +263,39 @@ int dwc_otg_gadget_queue_request(struct usb_ep *_ep, struct usb_request *_req, g
 {
 	dwc_otg_gadget_request_t *req = dwc_otg_gadget_get_request(_req);
 	dwc_otg_gadget_ep_t *ep = dwc_otg_gadget_get_ep(_ep);
+	dwc_otg_core_request_t *cReq = kzalloc(sizeof(dwc_otg_core_request_t), _gfp);
 
 	DWC_VERBOSE("%s(%p, %p, %d) me=%p, ep=%p, req=%p\n", __func__,
 			_ep, _req, _gfp, dwc_otg_gadget_device, ep, req);
 
-	req->dwc_request.dont_free = 1;
-	req->dwc_request.request_type = DWC_EP_TYPE_CONTROL; // TODO: DETECT THIS
-	req->dwc_request.direction = DWC_OTG_REQUEST_IN; // TODO: DETECT THIS
-	req->dwc_request.buffer = _req->buf;
-	req->dwc_request.buffer_length = _req->length;
-	req->dwc_request.length = _req->length;
-	req->dwc_request.cancelled_handler = NULL;
+	memset(cReq, sizeof(dwc_otg_core_request_t), 0); // Clear Structure
 
-	if(_req->dma)
+	cReq->dont_free = 1;
+	cReq->request_type = DWC_EP_TYPE_CONTROL;
+	cReq->direction = DWC_OTG_REQUEST_IN;
+	cReq->buffer_length = _req->length;
+	cReq->length = _req->length;
+	cReq->buffer = _req->buf;
+	cReq->cancelled_handler = NULL;
+	cReq->data = (void*)req;
+
+	/*if(ep->ep->descriptor != NULL)
+	{
+		cReq->request_type = ep->ep->descriptor->bmAttributes & USB_ENDPOINT_XFERTYPE_MASK; // Our DWC_OTG_XXX line up with the USB_XXX equivalents.
+		cReq->direction = ((ep->ep->descriptor->bEndpointAddress & USB_DIR_IN) == 0) ? DWC_OTG_REQUEST_OUT : DWC_OTG_REQUEST_IN;
+	}*/
+	
+	/*if(_req->dma != NULL)
 	{
 		req->dwc_request.dma_buffer = _req->buf;
 		req->dwc_request.dma_address = _req->dma;
+		req->free_dma = 0;
 	}
+	else*/
+		req->free_dma = 1;
 
-	//if(!_req->zero)
-		req->dwc_request.completed_handler = &dwc_otg_gadget_complete;
-	//else
-	//	req->dwc_request.completed_handler = NULL;
-
-	dwc_otg_core_enqueue_request(dwc_otg_gadget_device->core, ep->ep, &req->dwc_request);
-
-	if(0)//_req->zero)
-	{
-		dwc_otg_gadget_zlp_request.length = 0;
-		//dwc_otg_gadget_zlp_request.completed_handler = &dwc_otg_gadget_complete;
-		dwc_otg_core_enqueue_request(dwc_otg_gadget_device->core, ep->ep, &dwc_otg_gadget_zlp_request);
-	}
+	cReq->completed_handler = &dwc_otg_gadget_complete;
+	dwc_otg_core_enqueue_request(dwc_otg_gadget_device->core, ep->ep, cReq);
 	
 	return 0;
 }
@@ -356,19 +358,19 @@ void dwc_otg_gadget_fifo_flush(struct usb_ep *_ep)
  */
 void dwc_otg_gadget_complete(dwc_otg_core_request_t *_req)
 {
-	dwc_otg_gadget_request_t *req = (dwc_otg_gadget_request_t*)container_of(_req, dwc_otg_gadget_request_t, dwc_request);
+	dwc_otg_gadget_request_t *req = (dwc_otg_gadget_request_t*)_req->data; //container_of(_req, dwc_otg_gadget_request_t, dwc_request);
 
 	DWC_VERBOSE("%s(%p)\n", __func__, _req);
 
-	if(req->free == 1)
-	{
-		kfree(req);
-	}
-	else
-	{
-		req->usb_request.actual = req->dwc_request.length;
-		req->usb_request.status = req->dwc_request.cancelled ? -1 : 0;
+	req->usb_request.actual = _req->length;
+	req->usb_request.status = _req->cancelled ? -1 : 0;
+	if(req->usb_request.complete)
 		req->usb_request.complete(req->usb_ep, &req->usb_request);
-	}
+
+	if(req->free_dma && _req->dma_address)
+		dma_free_coherent(NULL, _req->buffer_length, _req->dma_buffer, _req->dma_address);
+
+	if(req->free)
+		kfree(_req);
 }
 

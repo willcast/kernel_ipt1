@@ -83,6 +83,9 @@ int dwc_otg_device_start(dwc_otg_device_t *_dev)
 	// Enable Interrupts
 	if(dwc_otg_device_enable_interrupts(_dev))
 		DWC_WARNING("Failed to enable device interrupts.\n");
+	
+	// Reset the device. TODO: is this OK?
+	dwc_otg_device_usb_reset(_dev);
 
 	// We're all set up, tell the usb_gadget framework
 	// that we exist.
@@ -92,6 +95,7 @@ int dwc_otg_device_start(dwc_otg_device_t *_dev)
 		DWC_ERROR("Failed to register controller.\n");
 		return ret;
 	}
+	
 
 	return 0;
 }
@@ -177,6 +181,10 @@ int dwc_otg_device_usb_reset(dwc_otg_device_t *_dev)
 	daint.b.outep0 = 1;
 	dwc_otg_write_reg32(&_dev->core->device_registers->daintmsk, daint.d32);
 
+	// Clear EP0 interrupts
+	//dwc_otg_write_reg32(&_dev->core->in_ep_registers[0]->diepint, 0xffffffff);
+	//dwc_otg_write_reg32(&_dev->core->out_ep_registers[0]->doepint, 0xffffffff);
+
 	// Enable EP Interrupts
 	diepmsk.b.xfercompl = 1;
 	diepmsk.b.ahberr = 1;
@@ -194,6 +202,15 @@ int dwc_otg_device_usb_reset(dwc_otg_device_t *_dev)
 	return 0;
 }
 
+/** The EP0 USB descriptor! */
+static struct usb_endpoint_descriptor ep0_descriptor = {
+	.bLength = USB_DT_ENDPOINT_SIZE,
+	.bDescriptorType = USB_DT_ENDPOINT,
+
+	.bEndpointAddress = 0,
+	.bmAttributes = 0,
+};
+
 /**
  * The device USB IRQ handler.
  */
@@ -206,6 +223,15 @@ irqreturn_t dwc_otg_device_irq(int _irq, void *_dev)
 
 	gintsts.d32 = dwc_otg_read_reg32(&core->registers->gintsts) & dwc_otg_read_reg32(&core->registers->gintmsk);
 	DWC_VERBOSE("%s(%d, %p) gintsts=0x%08x\n", __func__, _irq, _dev, gintsts.d32);
+
+	if(gintsts.b.enumdone)
+	{
+		DWC_DEBUG("enumdone\n");
+
+		dwc_otg_core_enable_ep(core, &core->endpoints[0], &ep0_descriptor);
+
+		gintclr.b.enumdone = 1;
+	}
 
 	if(gintsts.b.usbreset)
 	{
@@ -409,6 +435,7 @@ static dwc_otg_core_request_t ep0_out_request = {
 	.completed_handler = &dwc_otg_device_complete_ep0,
 	.dont_free = 1,	
 	.buffer_length = 64,
+	.dma_buffer = NULL,
 };
 
 static dwc_otg_core_request_t ep0_in_request = {
@@ -416,6 +443,16 @@ static dwc_otg_core_request_t ep0_in_request = {
 	.direction = DWC_OTG_REQUEST_IN,
 	.dont_free = 1,
 	.buffer_length = 64,
+	.dma_buffer = NULL,
+};
+
+static dwc_otg_core_request_t ep0_zlp_request = {
+	.request_type = DWC_EP_TYPE_CONTROL,
+	.direction = DWC_OTG_REQUEST_IN,
+	.dont_free = 1,
+	.buffer_length = 64,
+	.length = 0,
+	.dma_buffer = NULL,
 };
 
 /**
@@ -463,6 +500,12 @@ void dwc_otg_device_send_ep0(dwc_otg_device_t *_dev)
 	dwc_otg_core_enqueue_request(_dev->core, &_dev->core->endpoints[0], &ep0_in_request);
 }
 
+static void dwc_otg_device_zlp_ep0(dwc_otg_device_t *_dev)
+{
+	ep0_zlp_request.length = 0;
+	dwc_otg_core_enqueue_request(_dev->core, &_dev->core->endpoints[0], &ep0_zlp_request);
+}
+
 /**
  * dwc_otg_device_complete_ep0
  *
@@ -485,12 +528,12 @@ void dwc_otg_device_complete_ep0(dwc_otg_core_request_t *_req)
 
 #if defined(VERBOSE)&&defined(DEBUG)
 		uint8_t *b = (uint8_t*)packet;
-#endif
 		
-		DWC_VERBOSE("EP0 Sent us a setup packet! :3\n");
-		DWC_VERBOSE("%02x %02x %02x %02x %02x %02x %02x %02x\n", 
+		DWC_PRINT("EP0 Sent us a setup packet! :3\n");
+		DWC_PRINT("%02x %02x %02x %02x %02x %02x %02x %02x\n", 
 				b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]);
-		DWC_VERBOSE("RT %d, R %d, w %d\n", packet->bRequestType & 0x7F, packet->bRequest, packet->wIndex);
+		DWC_PRINT("RT %d, R %d, w %d\n", packet->bRequestType & 0x7F, packet->bRequest, packet->wIndex);
+#endif
 
 		if((packet->bRequestType & USB_TYPE_MASK) == USB_TYPE_STANDARD)
 		{
@@ -508,7 +551,7 @@ void dwc_otg_device_complete_ep0(dwc_otg_core_request_t *_req)
 
 						case USB_RECIP_INTERFACE:
 							*result = 0;
-							break;						  
+							break;
 
 						case USB_RECIP_ENDPOINT:
 							{
@@ -527,10 +570,6 @@ void dwc_otg_device_complete_ep0(dwc_otg_core_request_t *_req)
 						
 						ep0_in_request.length = 2;
 						dwc_otg_device_send_ep0(dev);
-
-						// FIXME: This is proof of concept, make it pretty, j0 -- Ricky26
-						//ep0_in_request.length = 0;
-						//dwc_otg_core_enqueue_request(dev->core, &dev->core->endpoints[0], &ep0_in_request);
 					}
 					goto done;
 
@@ -560,12 +599,20 @@ void dwc_otg_device_complete_ep0(dwc_otg_core_request_t *_req)
 		// If we got here we don't know how to handle
 		// the setup packet, so let's ask the gadget driver to
 		// do it, and then blame it if it doesn't work...
+		
+		if(packet->bRequest == USB_REQ_SET_CONFIGURATION)
+		{
+			DWC_VERBOSE("SETCONF\n");
+		}
 
 		DWC_VERBOSE("Passing setup packet to gadget driver.\n");
 		if(dwc_otg_gadget_driver->setup(&dwc_otg_gadget, packet))
 		{
 			DWC_ERROR("Got a setup packet we don't handle properly yet.\n");
+			goto fail;
 		}
+
+		goto done;
 	}
 	else if(ep0_out_request.length == 0)
 	{
@@ -576,6 +623,9 @@ void dwc_otg_device_complete_ep0(dwc_otg_core_request_t *_req)
 		DWC_WARNING("EP0 sent us some shit we don't know how to handle.\n");
 		// "I CAN DINE TO THAT!"
 	}
+
+fail:
+	dwc_otg_core_stall_ep(core, &core->endpoints[0]);
 
 done:
 	if(_req->direction == DWC_OTG_REQUEST_OUT)

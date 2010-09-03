@@ -55,6 +55,12 @@ typedef struct dwc_otg_gadget_request_struct
 	 * free the request when it completes.
 	 */
 	unsigned free : 1;
+
+	/**
+	 * Whether to free the DMA memory, this will be false if
+	 * they supplied it.
+	 */
+	unsigned free_dma : 1;
 } dwc_otg_gadget_request_t;
 
 #define dwc_otg_gadget_get_request(a) (dwc_otg_gadget_request_t*)container_of((a), dwc_otg_gadget_request_t, usb_request)

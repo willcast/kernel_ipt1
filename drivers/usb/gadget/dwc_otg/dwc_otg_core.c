@@ -31,6 +31,7 @@ int dwc_otg_core_init_eps(dwc_otg_core_t *_core)
 		_core->endpoints[i].num = i;
 		_core->endpoints[i].speed = 0;
 		_core->endpoints[i].active = 0;
+		_core->endpoints[i].descriptor = NULL;
 		_core->endpoints[i].in_registers = _core->in_ep_registers[i];
 		_core->endpoints[i].out_registers = _core->out_ep_registers[i];
 		INIT_LIST_HEAD(&_core->endpoints[i].queue_pointer); // Technically not required, keeps debugging clean though.
@@ -291,10 +292,7 @@ int dwc_otg_core_start(dwc_otg_core_t *_core)
 	dcfg_data_t dcfg = { .d32 = 0 };
 	dctl_data_t dctl = { .d32 = 0 };
 	gotgctl_data_t gotgctl = { .d32 = 0 };
-	//depctl_data_t depctl = { .d32 = 0 };
 	gintmsk_data_t gintmsk = { .d32 = 0 };
-	//diepmsk_data_t diepmsk = { .d32 = 0 };
-	//doepmsk_data_t doepmsk = { .d32 = 0 };
 
 	DWC_VERBOSE("%s(%p)\n", __func__, _core);
 
@@ -315,11 +313,6 @@ int dwc_otg_core_start(dwc_otg_core_t *_core)
 	dcfg.b.devspd = DWC_DCFG_HIGH_SPEED;
 	dcfg.b.perfrint = DWC_DCFG_FRAME_INTERVAL_80;
 	dwc_otg_write_reg32(&_core->device_registers->dcfg, dcfg.d32);
-
-	// Enable EP0
-	//depctl.b.epena = 1;
-	//dwc_otg_write_reg32(&_core->in_ep_registers[0]->diepctl, depctl.d32);
-	//dwc_otg_write_reg32(&_core->out_ep_registers[0]->doepctl, depctl.d32);
 
 	// Write FIFO sizes
 	dwc_otg_write_reg32(&_core->registers->grxfsiz, DWC_OTG_RX_FIFO_SIZE);
@@ -344,21 +337,6 @@ int dwc_otg_core_start(dwc_otg_core_t *_core)
 	gintmsk.b.disconnect = 1;
 	dwc_otg_write_reg32(&_core->registers->gintmsk, gintmsk.d32);
 	dwc_otg_write_reg32(&_core->device_registers->daintmsk, 0); //0xffffffff);
-
-	// Enable EP Interrupts
-	/*diepmsk.b.xfercompl = 1;
-	diepmsk.b.ahberr = 1;
-	diepmsk.b.timeout = 1;
-	dwc_otg_write_reg32(&_core->device_registers->diepmsk, diepmsk.d32);
-
-	doepmsk.b.xfercompl = 1;
-	doepmsk.b.setup = 1;
-	doepmsk.b.back2backsetup = 1;
-	dwc_otg_write_reg32(&_core->device_registers->doepmsk, doepmsk.d32);*/
-
-	// Clear EP0 interrupts
-	//dwc_otg_write_reg32(&_core->in_ep_registers[0]->diepint, 0xffffffff);
-	//dwc_otg_write_reg32(&_core->out_ep_registers[0]->doepint, 0xffffffff);
 
 	dctl.b.pwronprgdone = 1;
 	dctl.b.cgoutnak = 1;
@@ -389,25 +367,10 @@ void dwc_otg_core_stop(dwc_otg_core_t *_core)
  */
 void dwc_otg_core_ep_reset(dwc_otg_core_t *_core)
 {
-	uint32_t i;
-
-	_core->ready = 0;
+	DWC_VERBOSE("%s(%p)\n", __func__, _core);
 
 	// Cancel all current requests.
 	dwc_otg_core_cancel_all_requests(_core);
-
-	// Set NAK on all out endpoints
-	for(i = 0; i < _core->num_eps; i++)
-	{
-		depctl_data_t depctl = { .d32 = 0 };
-
-		_core->endpoints[i].active = 0;
-		
-		depctl.b.snak = 1;
-		dwc_otg_modify_reg32(&_core->out_ep_registers[i]->doepctl, 0, depctl.d32);
-	}
-
-	_core->ready = 1;
 }
 
 /**
@@ -489,7 +452,66 @@ irqreturn_t dwc_otg_core_irq(int _irq, void *_dev)
  */
 int dwc_otg_core_enable_ep(dwc_otg_core_t *_core, dwc_otg_core_ep_t *_ep, struct usb_endpoint_descriptor *_desc)
 {
+	daint_data_t daint = { .d32 = 0 };
+	depctl_data_t diepctl;
+	depctl_data_t doepctl;
+
+	DWC_VERBOSE("%s(%p, %p, %p)\n", __func__, _core, _ep, _desc);
+
+	if(_ep->descriptor)
+	{
+		DWC_WARNING("%s: %s already enabled!\n", __func__, _ep->name);
+		return 0;
+	}
+
 	_ep->descriptor = _desc;
+		
+	diepctl.d32 = dwc_otg_read_reg32(&_ep->in_registers->diepctl);
+	doepctl.d32 = dwc_otg_read_reg32(&_ep->out_registers->doepctl);
+
+	// Setup EP0 max packet size
+	if(_ep->num == 0)
+	{
+		dsts_data_t dsts;
+
+		dsts.d32 = dwc_otg_read_reg32(&_core->device_registers->dsts);
+
+		switch (dsts.b.enumspd)
+		{
+		case DWC_DSTS_ENUMSPD_HS_PHY_30MHZ_OR_60MHZ:
+		case DWC_DSTS_ENUMSPD_FS_PHY_30MHZ_OR_60MHZ:
+		case DWC_DSTS_ENUMSPD_FS_PHY_48MHZ:
+			diepctl.b.mps = DWC_DEP0CTL_MPS_64;
+			break;
+
+		case DWC_DSTS_ENUMSPD_LS_PHY_6MHZ:
+			diepctl.b.mps = DWC_DEP0CTL_MPS_8;
+			break;
+		}
+
+		daint.b.inep0 = 1;
+		daint.b.outep0 = 1;
+
+		diepctl.b.usbactep = 1;
+		doepctl.b.usbactep = 1;
+	}
+	else if(_desc->bEndpointAddress & USB_DIR_IN)
+	{
+		daint.ep.in = 1 << _ep->num;
+
+		diepctl.b.usbactep = 1;
+	}
+	else
+	{
+		daint.ep.out = 1 << _ep->num;
+
+		doepctl.b.usbactep = 1;
+	}
+
+	dwc_otg_write_reg32(&_core->device_registers->daintmsk, daint.d32);
+	dwc_otg_write_reg32(&_ep->in_registers->diepctl, diepctl.d32);
+	dwc_otg_write_reg32(&_ep->out_registers->doepctl, doepctl.d32);
+
 	return 0;
 }
 
@@ -498,6 +520,9 @@ int dwc_otg_core_enable_ep(dwc_otg_core_t *_core, dwc_otg_core_ep_t *_ep, struct
  */
 int dwc_otg_core_disable_ep(dwc_otg_core_t *_core, dwc_otg_core_ep_t *_ep)
 {
+	DWC_VERBOSE("%s(%p, %p)\n", __func__, _core, _ep);
+
+	_ep->descriptor = NULL;
 	return 0;
 }
 
@@ -506,7 +531,17 @@ int dwc_otg_core_disable_ep(dwc_otg_core_t *_core, dwc_otg_core_ep_t *_ep)
  */
 int dwc_otg_core_stall_ep(dwc_otg_core_t *_core, dwc_otg_core_ep_t *_ep)
 {
-	// TODO: fix this shit.
+	depctl_data_t depctl = { .d32 = 0 };
+	depctl.b.stall = 1;
+
+	if(_ep->descriptor && (_ep->descriptor->bEndpointAddress & USB_DIR_IN) == 0)
+	{
+		// Out EP
+		dwc_otg_modify_reg32(&_ep->out_registers->doepctl, 0, depctl.d32);
+	}
+	else
+		dwc_otg_modify_reg32(&_ep->in_registers->diepctl, 0, depctl.d32);
+
 	return 0;
 }
 
@@ -521,7 +556,15 @@ int dwc_otg_core_enqueue_request(dwc_otg_core_t *_core, dwc_otg_core_ep_t *_ep, 
 	// Store this now, as we're about to modify the list.
 	uint32_t startEP = list_empty(&_ep->transfer_queue);
 
-	DWC_VERBOSE("%s(%p, %p, %p)\n", __func__, _core, _ep, _req);
+#ifdef VERBOSE
+	char *dir = "invalid";
+	if(_req->direction == DWC_OTG_REQUEST_IN)
+		dir = "in";
+	else if(_req->direction == DWC_OTG_REQUEST_OUT)
+		dir = "out";
+
+	DWC_DEBUG("%s(%p, %p, %p) ep=%s, dir=%s, len=%d\n", __func__, _core, _ep, _req, _ep->name, dir, _req->length);
+#endif
 
 	if(_req->queued == 1)
 	{
@@ -547,27 +590,41 @@ int dwc_otg_core_enqueue_request(dwc_otg_core_t *_core, dwc_otg_core_ep_t *_ep, 
 		}
 	}
 
-	_req->core = _core;
-	_req->ep = _ep;
-	_req->queued = 1;
-
 	if(_req->length && !_req->dma_buffer)
 	{
 		// Allocate DMA buffer
-		_req->dma_buffer = dma_alloc_coherent(NULL, _req->length, &_req->dma_address, GFP_KERNEL);
+		_req->dma_buffer = dma_alloc_coherent(NULL, _req->buffer_length, &_req->dma_address, GFP_KERNEL);
 		if(!_req->dma_buffer)
 		{
 			DWC_ERROR("Failed to allocate a buffer for DMA.\n");
 			return -EIO;
 		}
 
-		memcpy(_req->dma_buffer, _req->buffer, sizeof(_req->length));
+		memcpy(_req->dma_buffer, _req->buffer, _req->length);
 	}
 
 	// TODO: Do a lock here
+	
+	// Check which EP will fire before us
+	/*if(startEP && !list_empty(&_core->ep_transfer_queue))
+	{
+		dwc_otg_core_ep_t *prev_ep = list_entry(_core->ep_transfer_queue.prev, dwc_otg_core_ep_t, queue_pointer);
+		depctl_data_t depctl = { .d32 = 0 };
+
+		depctl.d32 = dwc_otg_read_reg32(&prev_ep->in_registers->diepctl);
+
+		// Set us as the next EP!
+		depctl.b.nextep = _ep->num;
+
+		dwc_otg_write_reg32(&prev_ep->in_registers->diepctl, depctl.d32);
+	}*/
 
 	INIT_LIST_HEAD(&_req->queue_pointer);
 	list_add_tail(&_req->queue_pointer, &_ep->transfer_queue);
+
+	_req->core = _core;
+	_req->ep = _ep;
+	_req->queued = 1;
 	
 	if(startEP)
 		dwc_otg_core_start_request(_core, _req);
@@ -590,16 +647,24 @@ int dwc_otg_core_start_request(dwc_otg_core_t *_core, dwc_otg_core_request_t *_r
 	volatile uint32_t *deptsiz_ptr;
 	unsigned long flags;
 
-	DWC_VERBOSE("%s(%p, %p)\n", __func__, _core, _req);
+#ifdef VERBOSE
+	char *dir = "invalid";
+	if(_req->direction == DWC_OTG_REQUEST_IN)
+		dir = "in";
+	else if(_req->direction == DWC_OTG_REQUEST_OUT)
+		dir = "out";
+
+	DWC_DEBUG("%s(%p, %p) type=%d, dma=%p, ep=%s, dir=%s, len=%d\n", __func__, _core, _req, _req->request_type, (void*)_req->dma_address, ep->name, dir, _req->length);
+#endif
+
+	spin_lock_irqsave(&ep->lock, flags);
 
 	// Reset Flags
 	_req->setup = 0;
 	_req->cancelled = 0;
 	_req->active = 1;
 
-	spin_lock_irqsave(&ep->lock, flags);
-
-	if(_req->direction == DWC_OTG_REQUEST_OUT)
+	/*if(_req->direction == DWC_OTG_REQUEST_OUT)
 	{
 		daint.ep.out = 1 << ep->num;
 		depctl_ptr = &ep->out_registers->doepctl;
@@ -614,34 +679,40 @@ int dwc_otg_core_start_request(dwc_otg_core_t *_core, dwc_otg_core_request_t *_r
 		deptsiz_ptr = &ep->in_registers->dieptsiz;
 	}
 
-	dwc_otg_modify_reg32(&_core->device_registers->daintmsk, 0, daint.d32);
-	dwc_otg_write_reg32(depdma_ptr, _req->dma_address);
+	// Enable interrupts on this EP!
+	dwc_otg_modify_reg32(&_core->device_registers->daintmsk, 0, daint.d32);*/
+
+	// Read initial control register value.
 	depctl.d32 = dwc_otg_read_reg32(depctl_ptr);
 
-	/*if(depctl.b.epena)
-	{
-		if(depctl.b.dpid)
-			depctl.b.setd0pid = 1;
-		else
-			depctl.b.setd1pid = 1;
-	}*/
+	// Add ourselves to the EP queue.
+	INIT_LIST_HEAD(&ep->queue_pointer);
+	list_add_tail(&ep->queue_pointer, &_core->ep_transfer_queue);
 
-	if(!ep->active)
-	{
-		INIT_LIST_HEAD(&ep->queue_pointer);
-		list_add_tail(&ep->queue_pointer, &_core->ep_transfer_queue);
-		ep->active = 1;
-	}
+	//if(_req->direction == DWC_OTG_REQUEST_OUT)
+		depctl.b.epena = 1;
 
-	depctl.b.epena = 1;
 	depctl.b.cnak = 1;
-	depctl.b.usbactep = 1;
+	depctl.b.eptype = _req->request_type;
 
+	//if(_req->direction == DWC_OTG_REQUEST_OUT || ep->num != 0)
+		depctl.b.usbactep = 1;
+
+	// Set the DMA address of the data!
+	dwc_otg_write_reg32(depdma_ptr, _req->dma_address);
+
+	// Calculate packet size, number of packets,
+	// and set the max packet size in the control
+	// register.
 	if(ep->num == 0)
 	{
-		deptsiz0_data_t deptsiz0 = { .d32 = 0 };
+		deptsiz0_data_t deptsiz0;
+		deptsiz0.d32 = dwc_otg_read_reg32(deptsiz_ptr);
+
 		deptsiz0.b.pktcnt = 1;
-		deptsiz0.b.supcnt = 1;
+
+		if(_req->direction == DWC_OTG_REQUEST_OUT)
+			deptsiz0.b.supcnt = 1;
 
 		if(_req->length &~ 0x7f)
 		{
@@ -653,34 +724,25 @@ int dwc_otg_core_start_request(dwc_otg_core_t *_core, dwc_otg_core_request_t *_r
 
 		dwc_otg_write_reg32(deptsiz_ptr, deptsiz0.d32);
 
-		//depctl.b.mps = 64; // EP0 only supports an MPS of 64.
-		dwc_otg_write_reg32(depctl_ptr, depctl.d32);
+		//depctl.b.mps = DWC_DEP0CTL_MPS_64;
 	}
 	else
 	{
-		deptsiz_data_t deptsiz = { .d32 = 0 };
 		int mps = dwc_otg_mps_from_speed(ep->speed);
+		deptsiz_data_t deptsiz = { .d32 = 0 };
 
-		deptsiz.b.pktcnt = _req->length == 0 ? 1 : (_req->length + mps - 1)/mps;
+		deptsiz.d32 = dwc_otg_read_reg32(deptsiz_ptr);
+
+		deptsiz.b.pktcnt = (_req->length == 0) ? 1 : ((_req->length + mps - 1)/mps);
 		deptsiz.b.xfersize = _req->length;
-		dwc_otg_write_reg32(deptsiz_ptr, deptsiz.d32);
 
-		depctl.b.eptype = _req->request_type;
+		dwc_otg_write_reg32(deptsiz_ptr, deptsiz.d32);
+	
 		depctl.b.mps = mps;
-		dwc_otg_write_reg32(depctl_ptr, depctl.d32);
 	}
 
-	/*if(!depctl.b.usbactep)
-	{
-		struct list_head *list_ptr = _core->ep_transfer_queue.prev->prev;
-		dwc_otg_core_ep_t *ep2 = list_entry(list_ptr, dwc_otg_core_ep_t, queue_pointer);
-		depctl_data_t depctl = { .d32 = 0 };
-
-		// TODO: Set nextep. : P
-		depctl.d32 = dwc_otg_read_reg32(&ep2->in_registers->diepctl);
-		depctl.b.nextep = ep->num;
-		dwc_otg_write_reg32(&ep2->in_registers->diepctl, depctl.d32);
-	}*/
+	// Set the control register. (This starts the transfer!)
+	dwc_otg_write_reg32(depctl_ptr, depctl.d32);
 
 	spin_unlock_irqrestore(&ep->lock, flags);
 
@@ -697,7 +759,9 @@ int dwc_otg_core_complete_request(dwc_otg_core_t *_core, dwc_otg_core_request_t 
 	deptsiz_data_t deptsiz = { .d32 = 0 };
 	volatile uint32_t *depctl_ptr;
 	volatile uint32_t *deptsiz_ptr;
-
+	depctl_data_t depctl = { .d32 = 0 };
+	unsigned long flags;
+		
 	DWC_VERBOSE("%s(%p, %p)\n", __func__, _core, _req);
 
 	if(req != _req)
@@ -717,16 +781,25 @@ int dwc_otg_core_complete_request(dwc_otg_core_t *_core, dwc_otg_core_request_t 
 		depctl_ptr = &ep->in_registers->diepctl;
 		deptsiz_ptr = &ep->in_registers->dieptsiz;
 	}
+	
+	spin_lock_irqsave(&ep->lock, flags);
+
+	// Remove us from the EP queue.
+	if(_req->active)
+		list_del(&ep->queue_pointer);
+
+	// Mark the request as inactive
+	_req->active = 0;
 
 	// Remove this request as it is now complete.
 	list_del(&_req->queue_pointer);
+	_req->queued = 0;
 
-	// Remove us from the EP queue.
-	if(list_empty(&ep->transfer_queue))
-	{
-		list_del(&ep->queue_pointer);
-		ep->active = 0;
-	}
+	// TODO: CAN WE HAZ DO THIS?
+	// Shutdown the EP, and tell the host we're
+	// waiting on data. :P -- Ricky26
+	depctl.b.snak = 1;
+	//dwc_otg_write_reg32(depctl_ptr, depctl.d32);
 
 	// Calculate how much was actually sent
 	deptsiz.d32 = dwc_otg_read_reg32(deptsiz_ptr);
@@ -739,19 +812,10 @@ int dwc_otg_core_complete_request(dwc_otg_core_t *_core, dwc_otg_core_request_t 
 		req = list_first_entry(&ep->transfer_queue, dwc_otg_core_request_t, queue_pointer);
 		dwc_otg_core_start_request(_core, req);
 	}
-	/*else
-	{
-		depctl_data_t depctl = { .d32 = 0 };
+	else
+		ep->active = 0;
 
-		// Shutdown the EP.
-		depctl.b.snak = 1;
-		depctl.b.epdis = 1;
-		dwc_otg_write_reg32(depctl_ptr, depctl.d32);
-	}*/
-
-	// Mark the request as inactive
-	_req->active = 0;
-	_req->queued = 0;
+	spin_unlock_irqrestore(&ep->lock, flags);
 
 	// Call the handler
 	DWC_VERBOSE("%s: calling handler. cancel=%p, compl=%p\n", __func__, _req->cancelled_handler, req->completed_handler);
@@ -763,8 +827,11 @@ int dwc_otg_core_complete_request(dwc_otg_core_t *_core, dwc_otg_core_request_t 
 	if(!_req->dont_free)
 	{
 		if(_req->dma_buffer)
-			dma_free_coherent(NULL, _req->length, _req->dma_buffer, _req->dma_address);
-		kfree(_req->buffer);
+			dma_free_coherent(NULL, _req->buffer_length, _req->dma_buffer, _req->dma_address);
+
+		if(_req->dma_buffer != _req->buffer)
+			kfree(_req->buffer);
+
 		kfree(_req);
 		_req = NULL;
 	}
@@ -777,39 +844,36 @@ int dwc_otg_core_complete_request(dwc_otg_core_t *_core, dwc_otg_core_request_t 
  */
 int dwc_otg_core_cancel_all_requests(dwc_otg_core_t *_core)
 {
-	while(!list_empty(&_core->ep_transfer_queue))
+	uint32_t i;
+
+	DWC_VERBOSE("%s(%p)\n", __func__, _core);
+
+	_core->ready = 0;
+
+	for(i = 0; i < _core->num_eps; i++)
 	{
-		dwc_otg_core_ep_t *ep = list_first_entry(&_core->ep_transfer_queue, dwc_otg_core_ep_t, queue_pointer);
+		dwc_otg_core_ep_t *ep = &_core->endpoints[i];
+		depctl_data_t depctl = { .d32 = 0 };
+
+		// Set NAK on all out endpoints
+		depctl.b.snak = 1;
+		//dwc_otg_modify_reg32(&_core->out_ep_registers[i]->doepctl, 0, depctl.d32);
 
 		DWC_VERBOSE("Deleting transfers from %s (%p).\n", ep->name, ep);
 
-		if(!ep->active)
-		{
-			DWC_ERROR("Inactive EP (%s) made it onto the transfer queue!\n", ep->name);
-			list_del(&ep->queue_pointer);
-			continue;
-		}
-
-		if(list_empty(&ep->transfer_queue))
-		{
-			DWC_ERROR("%s on transfer queue, yet has no transfers queued!\n", ep->name);
-			list_del(&ep->queue_pointer);
-			ep->active = 0;
-			continue;
-		}
-
-		do
+ 		while(!list_empty(&ep->transfer_queue))
 		{
 			dwc_otg_core_request_t *req = list_first_entry(&ep->transfer_queue, dwc_otg_core_request_t, queue_pointer);
 
-			DWC_VERBOSE("Completing request %p, on %s (%p).\n", req, ep->name, ep);
+			DWC_VERBOSE("Cancelling request %p, on %s (%p).\n", req, ep->name, ep);
 
 			// Cancel the request.
 			req->cancelled = 1;
 			dwc_otg_core_complete_request(_core, req);
 		}
- 		while(!list_empty(&ep->transfer_queue));
 	}
+
+	_core->ready = 1;
 
 	return 0;
 }
