@@ -220,12 +220,13 @@ struct usb_request *dwc_otg_gadget_alloc_request(struct usb_ep *_ep, gfp_t _gfp)
 {
 	dwc_otg_gadget_request_t *req = (dwc_otg_gadget_request_t*)kmalloc(sizeof(dwc_otg_gadget_request_t), _gfp);
 
-	DWC_VERBOSE("%s(%p, %d)\n", __func__, _ep, _gfp);
+	DWC_VERBOSE("%s(%p, %d) sz=%d\n", __func__, _ep, _gfp, sizeof(dwc_otg_gadget_request_t));
 
 	// Clear the structure
 	memset(req, sizeof(dwc_otg_gadget_request_t), 0);
 
 	req->usb_ep = _ep;
+	req->usb_request.dma = 0;
 
 	return &req->usb_request;
 }
@@ -240,13 +241,13 @@ void dwc_otg_gadget_free_request(struct usb_ep *_ep, struct usb_request *_req)
 
 	DWC_VERBOSE("%s(%p, %p)\n", __func__, _ep, _req);
 
-	/*if(!req->dwc_request.active)
-	{
-		if(req->free_dma)
-			dma_free_coherent(NULL, req->dwc_request.buffer_length, req->dwc_request.dma_buffer, req->dwc_request.dma_address);
+	//if(!req->dwc_request.active)
+	//{
+	//	if(req->free_dma)
+	//		dma_free_coherent(NULL, req->dwc_request.buffer_length, req->dwc_request.dma_buffer, req->dwc_request.dma_address);
 
 		kfree(req);
-	}*/
+	//}
 }
 
 static dwc_otg_core_request_t dwc_otg_gadget_zlp_request = {
@@ -265,9 +266,6 @@ int dwc_otg_gadget_queue_request(struct usb_ep *_ep, struct usb_request *_req, g
 	dwc_otg_gadget_ep_t *ep = dwc_otg_gadget_get_ep(_ep);
 	dwc_otg_core_request_t *cReq = kzalloc(sizeof(dwc_otg_core_request_t), _gfp);
 
-	DWC_VERBOSE("%s(%p, %p, %d) me=%p, ep=%p, req=%p\n", __func__,
-			_ep, _req, _gfp, dwc_otg_gadget_device, ep, req);
-
 	memset(cReq, sizeof(dwc_otg_core_request_t), 0); // Clear Structure
 
 	cReq->dont_free = 1;
@@ -276,22 +274,44 @@ int dwc_otg_gadget_queue_request(struct usb_ep *_ep, struct usb_request *_req, g
 	cReq->buffer_length = _req->length;
 	cReq->length = _req->length;
 	cReq->buffer = _req->buf;
+	cReq->cancelled = 0;
 	cReq->cancelled_handler = NULL;
 	cReq->data = (void*)req;
 
-	/*if(ep->ep->descriptor != NULL)
+	if(ep->ep->num != 0)
 	{
-		cReq->request_type = ep->ep->descriptor->bmAttributes & USB_ENDPOINT_XFERTYPE_MASK; // Our DWC_OTG_XXX line up with the USB_XXX equivalents.
-		cReq->direction = ((ep->ep->descriptor->bEndpointAddress & USB_DIR_IN) == 0) ? DWC_OTG_REQUEST_OUT : DWC_OTG_REQUEST_IN;
-	}*/
+		if(ep->ep->descriptor != NULL)
+		{
+			cReq->request_type = ep->ep->descriptor->bmAttributes & USB_ENDPOINT_XFERTYPE_MASK; // Our DWC_OTG_XXX line up with the USB_XXX equivalents.
+			cReq->direction = ((ep->ep->descriptor->bEndpointAddress & USB_DIR_IN) == 0) ? DWC_OTG_REQUEST_OUT : DWC_OTG_REQUEST_IN;
+		}
+		else
+		{
+			DWC_ERROR("%s: tried to make a transfer but %s is disabled.\n", ep->ep->name, ep->ep->name);
+			return -1;
+		}
+	}
+
+#if defined(DEBUG)&&defined(VERBOSE)
+	{
+		char *dir = "Invalid";
+		if(cReq->direction == DWC_OTG_REQUEST_IN)
+			dir = "in";
+		else if(cReq->direction == DWC_OTG_REQUEST_OUT)
+			dir = "out";
+
+		DWC_PRINT("%s(%p, %p, %d) me=%p, ep=%s, dir=%s, req=%p, len=%d\n", __func__,
+				_ep, _req, _gfp, dwc_otg_gadget_device, ep->ep->name, dir, req, _req->length);
+	}
+#endif
 	
-	/*if(_req->dma != NULL)
+	if(_req->dma != 0)
 	{
-		req->dwc_request.dma_buffer = _req->buf;
-		req->dwc_request.dma_address = _req->dma;
+		cReq->dma_buffer = _req->buf;
+		cReq->dma_address = _req->dma;
 		req->free_dma = 0;
 	}
-	else*/
+	else
 		req->free_dma = 1;
 
 	cReq->completed_handler = &dwc_otg_gadget_complete;
@@ -360,15 +380,23 @@ void dwc_otg_gadget_complete(dwc_otg_core_request_t *_req)
 {
 	dwc_otg_gadget_request_t *req = (dwc_otg_gadget_request_t*)_req->data; //container_of(_req, dwc_otg_gadget_request_t, dwc_request);
 
-	DWC_VERBOSE("%s(%p)\n", __func__, _req);
+	DWC_VERBOSE("%s(%p) len=%d, ep=%s, cancel=%d\n", __func__, _req, _req->length, _req->ep->name, _req->cancelled);
 
-	req->usb_request.actual = _req->length;
-	req->usb_request.status = _req->cancelled ? -1 : 0;
+	if(req->free_dma)
+	{
+		if(_req->dma_buffer && _req->buffer)
+		{
+			memcpy(_req->buffer, _req->dma_buffer, _req->length);
+		}
+
+		if(_req->dma_address)
+			dma_free_coherent(NULL, _req->buffer_length, _req->dma_buffer, _req->dma_address);
+	}
+
+	req->usb_request.actual = (_req->length > 0) ? _req->length : 0;
+	req->usb_request.status = (_req->cancelled == 0) ? 0 : -1;
 	if(req->usb_request.complete)
 		req->usb_request.complete(req->usb_ep, &req->usb_request);
-
-	if(req->free_dma && _req->dma_address)
-		dma_free_coherent(NULL, _req->buffer_length, _req->dma_buffer, _req->dma_address);
 
 	if(req->free)
 		kfree(_req);

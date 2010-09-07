@@ -84,7 +84,7 @@ int dwc_otg_device_start(dwc_otg_device_t *_dev)
 	if(dwc_otg_device_enable_interrupts(_dev))
 		DWC_WARNING("Failed to enable device interrupts.\n");
 	
-	// Reset the device. TODO: is this OK?
+	// Reset the device.
 	dwc_otg_device_usb_reset(_dev);
 
 	// We're all set up, tell the usb_gadget framework
@@ -131,6 +131,7 @@ int dwc_otg_device_enable_interrupts(dwc_otg_device_t *_dev)
 	gintmsk.b.usbreset = 1;
 	gintmsk.b.inepintr = 1;
 	gintmsk.b.outepintr = 1;
+	gintmsk.b.enumdone = 1;
 	dwc_otg_modify_reg32(&_dev->core->registers->gintmsk, 0, gintmsk.d32);
 
 	return 0;
@@ -150,6 +151,7 @@ int dwc_otg_device_disable_interrupts(dwc_otg_device_t *_dev)
 	gintmsk.b.usbreset = 1;
 	gintmsk.b.inepintr = 1;
 	gintmsk.b.outepintr = 1;
+	gintmsk.b.enumdone = 1;
 	dwc_otg_modify_reg32(&_dev->core->registers->gintmsk, gintmsk.d32, 0);
 
 	return 0;
@@ -182,8 +184,8 @@ int dwc_otg_device_usb_reset(dwc_otg_device_t *_dev)
 	dwc_otg_write_reg32(&_dev->core->device_registers->daintmsk, daint.d32);
 
 	// Clear EP0 interrupts
-	//dwc_otg_write_reg32(&_dev->core->in_ep_registers[0]->diepint, 0xffffffff);
-	//dwc_otg_write_reg32(&_dev->core->out_ep_registers[0]->doepint, 0xffffffff);
+	dwc_otg_write_reg32(&_dev->core->in_ep_registers[0]->diepint, 0xffffffff);
+	dwc_otg_write_reg32(&_dev->core->out_ep_registers[0]->doepint, 0xffffffff);
 
 	// Enable EP Interrupts
 	diepmsk.b.xfercompl = 1;
@@ -195,9 +197,6 @@ int dwc_otg_device_usb_reset(dwc_otg_device_t *_dev)
 	doepmsk.b.setup = 1;
 	doepmsk.b.back2backsetup = 1;
 	dwc_otg_write_reg32(&_dev->core->device_registers->doepmsk, doepmsk.d32);
-
-	// Listen for setup packets on EP0.
-	dwc_otg_device_receive_ep0(_dev);
 
 	return 0;
 }
@@ -228,7 +227,11 @@ irqreturn_t dwc_otg_device_irq(int _irq, void *_dev)
 	{
 		DWC_DEBUG("enumdone\n");
 
+		// Enable EP0.
 		dwc_otg_core_enable_ep(core, &core->endpoints[0], &ep0_descriptor);
+		
+		// Listen for setup packets on EP0.
+		dwc_otg_device_receive_ep0(_dev);
 
 		gintclr.b.enumdone = 1;
 	}
@@ -265,8 +268,9 @@ irqreturn_t dwc_otg_device_irq(int _irq, void *_dev)
 	}
 
 	// Clear the interrupts
+	gintsts.d32 &= ~gintclr.d32;
 	dwc_otg_write_reg32(&core->registers->gintsts, gintclr.d32);
-	return gintclr.d32 == 0 ? IRQ_NONE : IRQ_HANDLED;
+	return gintsts.d32 != 0 ? IRQ_NONE : IRQ_HANDLED;
 }
 
 /**
@@ -461,7 +465,7 @@ static dwc_otg_core_request_t ep0_zlp_request = {
 void dwc_otg_device_receive_ep0(dwc_otg_device_t *_dev)
 {
 	ep0_out_request.data = _dev;
-	ep0_out_request.length = ep0_out_request.buffer_length;
+	ep0_out_request.length = 8; //ep0_out_request.buffer_length;
 
 	if(ep0_out_request.dma_buffer == NULL)
 	{
@@ -599,13 +603,14 @@ void dwc_otg_device_complete_ep0(dwc_otg_core_request_t *_req)
 		// If we got here we don't know how to handle
 		// the setup packet, so let's ask the gadget driver to
 		// do it, and then blame it if it doesn't work...
-		
-		if(packet->bRequest == USB_REQ_SET_CONFIGURATION)
-		{
-			DWC_VERBOSE("SETCONF\n");
-		}
 
 		DWC_VERBOSE("Passing setup packet to gadget driver.\n");
+		if(dwc_otg_gadget_driver == NULL)
+		{
+			DWC_WARNING("No gadget driver yet, stalling.\n");
+			goto fail;
+		}
+
 		if(dwc_otg_gadget_driver->setup(&dwc_otg_gadget, packet))
 		{
 			DWC_ERROR("Got a setup packet we don't handle properly yet.\n");
@@ -620,8 +625,7 @@ void dwc_otg_device_complete_ep0(dwc_otg_core_request_t *_req)
 	}
 	else
 	{
-		DWC_WARNING("EP0 sent us some shit we don't know how to handle.\n");
-		// "I CAN DINE TO THAT!"
+		DWC_ERROR("EP0 sent us some shit we don't know how to handle.\n");
 	}
 
 fail:

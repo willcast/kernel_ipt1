@@ -65,6 +65,9 @@ typedef struct dwc_otg_core_request_struct
 	/** The buffer length. */
 	ssize_t buffer_length;
 
+	/** The amount transferred. */
+	ssize_t amount_done;
+
 	/** The request size. */
 	ssize_t length;
 
