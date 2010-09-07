@@ -841,11 +841,14 @@ int dwc_otg_core_start_request(dwc_otg_core_t *_core, dwc_otg_core_request_t *_r
 	}
 	else
 	{
-		int mps = dwc_otg_mps_from_speed(ep->speed);
 		deptsiz_data_t deptsiz = { .d32 = 0 };
 
-		if(_req->direction == DWC_OTG_REQUEST_IN && txAmt > 512)
-			txAmt = 512;
+		int mps = dwc_otg_mps_from_speed(ep->speed);
+		if(ep->descriptor != NULL)
+			mps = ep->descriptor->wMaxPacketSize;
+
+		//if(_req->direction == DWC_OTG_REQUEST_IN && txAmt > 512)
+		//	txAmt = 512;
 
 		deptsiz.d32 = dwc_otg_read_reg32(deptsiz_ptr);
 
@@ -878,7 +881,7 @@ int dwc_otg_core_complete_request(dwc_otg_core_t *_core, dwc_otg_core_request_t 
 	deptsiz_data_t deptsiz = { .d32 = 0 };
 	volatile uint32_t *depctl_ptr;
 	volatile uint32_t *deptsiz_ptr;
-	depctl_data_t depctl = { .d32 = 0 };
+	//depctl_data_t depctl = { .d32 = 0 };
 	unsigned long flags;
 		
 	DWC_VERBOSE("%s(%p, %p)\n", __func__, _core, _req);
