@@ -18,15 +18,13 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 
-// TODO: Revert -- Ricky26
-#define VERBOSE_DEBUG 
+/* #define VERBOSE_DEBUG */
 
 #include <linux/kallsyms.h>
 #include <linux/kernel.h>
 #include <linux/slab.h>
 #include <linux/device.h>
 #include <linux/kdev_t.h>
-#include <linux/delay.h>
 
 #include <linux/usb/composite.h>
 
