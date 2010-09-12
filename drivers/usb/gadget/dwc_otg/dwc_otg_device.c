@@ -23,6 +23,9 @@ int dwc_otg_device_init(dwc_otg_device_t *_dev, dwc_otg_core_t *_core)
 	//  but better safe than sorry.)
 	memset(_dev, sizeof(dwc_otg_device_t), 0);
 
+	// Initialise members
+	_dev->remote_wakeup = 1;
+
 	if(!_core)
 	{
 		DWC_ERROR("%s passed a null core structure pointer!\n", __func__);
@@ -129,6 +132,8 @@ int dwc_otg_device_enable_interrupts(dwc_otg_device_t *_dev)
 	DWC_VERBOSE("%s(%p)\n", __func__, _dev);
 
 	gintmsk.b.usbreset = 1;
+	gintmsk.b.usbsuspend = 1;
+	gintmsk.b.disconnect = 1;
 	gintmsk.b.inepintr = 1;
 	gintmsk.b.outepintr = 1;
 	gintmsk.b.enumdone = 1;
@@ -225,6 +230,8 @@ irqreturn_t dwc_otg_device_irq(int _irq, void *_dev)
 
 	if(gintsts.b.enumdone)
 	{
+		dsts_data_t dsts;
+
 		DWC_DEBUG("enumdone\n");
 
 		// Enable EP0.
@@ -232,6 +239,24 @@ irqreturn_t dwc_otg_device_irq(int _irq, void *_dev)
 		
 		// Listen for setup packets on EP0.
 		dwc_otg_device_receive_ep0(_dev);
+
+		// Tell gadget driver our top speed.
+		dsts.d32 = dwc_otg_read_reg32(&core->device_registers->dsts);
+		switch (dsts.b.enumspd)
+		{
+		case DWC_DSTS_ENUMSPD_HS_PHY_30MHZ_OR_60MHZ:
+			dwc_otg_gadget.speed = USB_SPEED_HIGH;
+			break;
+
+		case DWC_DSTS_ENUMSPD_FS_PHY_30MHZ_OR_60MHZ:
+		case DWC_DSTS_ENUMSPD_FS_PHY_48MHZ:
+			dwc_otg_gadget.speed = USB_SPEED_FULL;
+			break;
+
+		case DWC_DSTS_ENUMSPD_LS_PHY_6MHZ:
+			dwc_otg_gadget.speed = USB_SPEED_LOW;
+			break;
+		}
 
 		gintclr.b.enumdone = 1;
 	}
@@ -242,7 +267,42 @@ irqreturn_t dwc_otg_device_irq(int _irq, void *_dev)
 		
 		dwc_otg_device_usb_reset(dev);
 
+		// Notify gadget driver
+		if(dwc_otg_gadget_driver && dwc_otg_gadget_driver->resume)
+			dwc_otg_gadget_driver->resume(&dwc_otg_gadget);
+
 		gintclr.b.usbreset = 1;
+	}
+
+	if(gintsts.b.usbsuspend)
+	{
+		DWC_DEBUG("usbsuspend\n");
+
+		// Notify gadget driver
+		if(dwc_otg_gadget_driver && dwc_otg_gadget_driver->suspend)
+			dwc_otg_gadget_driver->suspend(&dwc_otg_gadget);
+
+		gintclr.b.usbsuspend = 1;
+	}
+
+	if(gintsts.b.disconnect)
+	{
+		dcfg_data_t dcfg = { .d32 = 0 };
+
+		DWC_DEBUG("disconnect\n");
+
+		// Clear Device Address
+		dcfg.b.devaddr = DWC_DCFG_DEVADDR_MASK;
+		dwc_otg_modify_reg32(&dev->core->device_registers->dcfg, dcfg.d32, 0);
+
+		// Reset EPs
+		dwc_otg_core_ep_reset(dev->core);
+
+		// Notify gadget driver
+		if(dwc_otg_gadget_driver && dwc_otg_gadget_driver->disconnect)
+			dwc_otg_gadget_driver->disconnect(&dwc_otg_gadget);
+
+		gintclr.b.disconnect = 1;
 	}
 
 	if(gintsts.b.inepintr || gintsts.b.outepintr)
@@ -450,15 +510,6 @@ static dwc_otg_core_request_t ep0_in_request = {
 	.dma_buffer = NULL,
 };
 
-static dwc_otg_core_request_t ep0_zlp_request = {
-	.request_type = DWC_EP_TYPE_CONTROL,
-	.direction = DWC_OTG_REQUEST_IN,
-	.dont_free = 1,
-	.buffer_length = 64,
-	.length = 0,
-	.dma_buffer = NULL,
-};
-
 /**
  * dwc_otg_device_receive_ep0
  */
@@ -501,13 +552,19 @@ void dwc_otg_device_receive_ep0(dwc_otg_device_t *_dev)
  */
 void dwc_otg_device_send_ep0(dwc_otg_device_t *_dev)
 {
+	ep0_in_request.data = _dev;
 	dwc_otg_core_enqueue_request(_dev->core, &_dev->core->endpoints[0], &ep0_in_request);
 }
 
-static void dwc_otg_device_zlp_ep0(dwc_otg_device_t *_dev)
+static void dwc_otg_device_complete_stall_ep0(dwc_otg_core_request_t *_req)
 {
-	ep0_zlp_request.length = 0;
-	dwc_otg_core_enqueue_request(_dev->core, &_dev->core->endpoints[0], &ep0_zlp_request);
+	dwc_otg_core_t *core = _req->core;
+	dwc_otg_device_t *dev = (dwc_otg_device_t*)_req->data;
+
+	DWC_VERBOSE("%s(%p)\n", __func__, _req);
+	
+	_req->completed_handler = NULL;
+	dwc_otg_device_receive_ep0(dev);
 }
 
 /**
@@ -519,6 +576,8 @@ void dwc_otg_device_complete_ep0(dwc_otg_core_request_t *_req)
 {
 	dwc_otg_core_t *core = _req->core;
 	dwc_otg_device_t *dev = (dwc_otg_device_t*)_req->data;
+	
+	dwc_otg_core_stall_ep(core, &core->endpoints[0], 0);
 
 	if(_req->cancelled)
 	{
@@ -541,6 +600,8 @@ void dwc_otg_device_complete_ep0(dwc_otg_core_request_t *_req)
 
 		if((packet->bRequestType & USB_TYPE_MASK) == USB_TYPE_STANDARD)
 		{
+			int set = 0;
+
 			switch(packet->bRequest)
 			{
 				case USB_REQ_GET_STATUS:
@@ -550,7 +611,7 @@ void dwc_otg_device_complete_ep0(dwc_otg_core_request_t *_req)
 						switch (packet->bRequestType & USB_RECIP_MASK)
 						{
 						case USB_RECIP_DEVICE:
-							*result = 0x3; // Self powered, remote wakeup enabled.
+							*result = 0x1 | (1 << dev->remote_wakeup); // Self powered, remote wakeup enabled.
 							break;
 
 						case USB_RECIP_INTERFACE:
@@ -559,6 +620,7 @@ void dwc_otg_device_complete_ep0(dwc_otg_core_request_t *_req)
 
 						case USB_RECIP_ENDPOINT:
 							{
+								// TODO: check this!
 								int epnum = packet->wIndex & 0xf;
 								if(epnum < core->num_eps &&
 										list_empty(&core->endpoints[epnum].transfer_queue))
@@ -578,9 +640,32 @@ void dwc_otg_device_complete_ep0(dwc_otg_core_request_t *_req)
 					goto done;
 
 				case USB_REQ_SET_FEATURE:
-					goto done;
-					
+					set = 1;
+					// fall through
 				case USB_REQ_CLEAR_FEATURE:
+
+					switch (packet->bRequestType & USB_RECIP_MASK)
+					{
+						case USB_RECIP_DEVICE:
+							switch(packet->wValue)
+							{
+								case USB_DEVICE_REMOTE_WAKEUP:
+									dev->remote_wakeup = set;
+									break;
+							}
+							break;
+
+						case USB_RECIP_ENDPOINT:
+							{
+								int ep = packet->wValue;
+								if(ep == 0 || ep > core->num_eps)
+									goto fail;
+
+								dwc_otg_core_stall_ep(core, &core->endpoints[ep], set);
+							}
+							break;
+
+					}
 					goto done;
 
 				case USB_REQ_SET_ADDRESS:
@@ -592,9 +677,6 @@ void dwc_otg_device_complete_ep0(dwc_otg_core_request_t *_req)
 						dwc_otg_write_reg32(&core->device_registers->dcfg, dcfg.d32);
 
 						DWC_VERBOSE("Received address %d.\n", dcfg.b.devaddr);
-
-						ep0_in_request.length = 0;
-						dwc_otg_device_send_ep0(dev);
 					}
 					goto done;
 			}
@@ -617,7 +699,7 @@ void dwc_otg_device_complete_ep0(dwc_otg_core_request_t *_req)
 			goto fail;
 		}
 
-		goto done;
+		goto exit;
 	}
 	else if(ep0_out_request.length == 0)
 	{
@@ -628,10 +710,20 @@ void dwc_otg_device_complete_ep0(dwc_otg_core_request_t *_req)
 		DWC_ERROR("EP0 sent us some shit we don't know how to handle.\n");
 	}
 
+	goto exit;
+
 fail:
-	dwc_otg_core_stall_ep(core, &core->endpoints[0]);
+	ep0_in_request.completed_handler = &dwc_otg_device_complete_stall_ep0;
+	ep0_in_request.length = 0;
+	dwc_otg_core_stall_ep(core, &core->endpoints[0], 1);
+	dwc_otg_device_send_ep0(dev);
+	return;
 
 done:
+	ep0_in_request.length = 0;
+	dwc_otg_device_send_ep0(dev);
+
+exit:
 	if(_req->direction == DWC_OTG_REQUEST_OUT)
 		dwc_otg_device_receive_ep0(dev);
 }

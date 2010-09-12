@@ -50,8 +50,14 @@ static struct usb_gadget_ops dwc_otg_gadget_ops = {
 struct usb_gadget dwc_otg_gadget = {
 	.ops = &dwc_otg_gadget_ops,
 	.name = DWC_OTG_DRIVER_NAME,
-	.is_dualspeed = 1, //0, //?
-	.is_otg = 0, //!
+
+	.is_dualspeed = 1,
+	.is_otg = 0, //1,
+	//.is_a_peripheral = 1,
+
+	//.a_hnp_support = 1,
+	//.b_hnp_enable = 1,
+	// TODO: Fill these in properly... >_>
 };
 
 /**
@@ -227,6 +233,7 @@ struct usb_request *dwc_otg_gadget_alloc_request(struct usb_ep *_ep, gfp_t _gfp)
 
 	req->usb_ep = _ep;
 	req->usb_request.dma = 0;
+	req->usb_request.zero = 0;
 
 	return &req->usb_request;
 }
@@ -250,13 +257,6 @@ void dwc_otg_gadget_free_request(struct usb_ep *_ep, struct usb_request *_req)
 	//}
 }
 
-static dwc_otg_core_request_t dwc_otg_gadget_zlp_request = {
-	.request_type = DWC_EP_TYPE_CONTROL,
-	.dont_free = 1,
-	.length = 0,
-	.buffer_length = 0,
-};
-
 /**
  * This queues a request to be sent to the host.
  */
@@ -266,6 +266,7 @@ int dwc_otg_gadget_queue_request(struct usb_ep *_ep, struct usb_request *_req, g
 	dwc_otg_gadget_ep_t *ep = dwc_otg_gadget_get_ep(_ep);
 	dwc_otg_core_request_t *cReq = kzalloc(sizeof(dwc_otg_core_request_t), _gfp);
 
+	// TODO: Use internal request rather than creating a new one!
 	memset(cReq, sizeof(dwc_otg_core_request_t), 0); // Clear Structure
 
 	cReq->dont_free = 1;
@@ -277,6 +278,7 @@ int dwc_otg_gadget_queue_request(struct usb_ep *_ep, struct usb_request *_req, g
 	cReq->cancelled = 0;
 	cReq->cancelled_handler = NULL;
 	cReq->data = (void*)req;
+	cReq->zero = _req->zero;
 
 	if(ep->ep->num != 0)
 	{
@@ -339,8 +341,10 @@ int dwc_otg_gadget_set_halt(struct usb_ep *_ep, int _val)
 {
 	dwc_otg_gadget_ep_t *ep = dwc_otg_gadget_get_ep(_ep);
 
+	DWC_VERBOSE("%s(%p, %i) ep=%s\n", __func__, _ep, _val, ep->ep->name);
+
 	if(_val > 0)
-		dwc_otg_core_stall_ep(dwc_otg_gadget_device->core, ep->ep);
+		dwc_otg_core_stall_ep(dwc_otg_gadget_device->core, ep->ep, _val);
 
 	return 0;
 }
@@ -351,6 +355,8 @@ int dwc_otg_gadget_set_halt(struct usb_ep *_ep, int _val)
  */
 int dwc_otg_gadget_set_wedge(struct usb_ep *_ep)
 {
+	DWC_VERBOSE("%s(%p)\n", __func__, _ep);
+
 	dwc_otg_gadget_set_halt(_ep, 2);
 	return 0;
 }

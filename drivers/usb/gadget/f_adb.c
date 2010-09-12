@@ -330,6 +330,7 @@ requeue_req:
 
 		DBG(cdev, "rx %p %d\n", req, req->actual);
 		xfer = (req->actual < count) ? req->actual : count;
+		r = xfer; // Isn't this supposed to be done? -- Ricky26
 		if (copy_to_user(buf, req->buf, xfer))
 			r = -EFAULT;
 	} else

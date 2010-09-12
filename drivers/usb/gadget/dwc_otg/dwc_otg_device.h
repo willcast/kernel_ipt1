@@ -21,6 +21,9 @@ typedef struct dwc_otg_device_struct
 	/** The IRQ of the device. */
 	int irq;
 
+	/** Whether remote wakeup is enabled. */
+	unsigned remote_wakeup : 1;
+
 } dwc_otg_device_t;
 
 /**

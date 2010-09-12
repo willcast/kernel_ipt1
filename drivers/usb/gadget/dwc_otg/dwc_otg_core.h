@@ -65,6 +65,9 @@ typedef struct dwc_otg_core_request_struct
 	/** The buffer length. */
 	ssize_t buffer_length;
 
+	/** The amount being transferred. */
+	ssize_t current_load;
+
 	/** The amount transferred. */
 	ssize_t amount_done;
 
@@ -87,6 +90,12 @@ typedef struct dwc_otg_core_request_struct
 	 * This flag says that the request is currently queued or active.
 	 */
 	unsigned queued : 1;
+	
+	/**
+	 * If this flag is set, an extra empty packet is sent at the
+	 * end of the transfer.
+	 */
+	unsigned zero : 1;
 
 	/**
 	 * This flag says that the request is currently active.
@@ -272,6 +281,9 @@ typedef struct dwc_otg_core_struct
 	 */
 	unsigned ready : 1;
 
+	/** The core spinlock, for protecting registers. */
+	spinlock_t lock;
+
 } dwc_otg_core_t;
 
 /**
@@ -353,7 +365,7 @@ int dwc_otg_core_disable_ep(dwc_otg_core_t *_core, dwc_otg_core_ep_t *_ep);
 /**
  * Stall an endpoint.
  */
-int dwc_otg_core_stall_ep(dwc_otg_core_t *_core, dwc_otg_core_ep_t *_ep);
+int dwc_otg_core_stall_ep(dwc_otg_core_t *_core, dwc_otg_core_ep_t *_ep, int _stall);
 
 /**
  * dwc_otg_core_enqueue_request
