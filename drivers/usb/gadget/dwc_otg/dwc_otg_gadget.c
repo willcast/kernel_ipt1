@@ -285,7 +285,7 @@ int dwc_otg_gadget_queue_request(struct usb_ep *_ep, struct usb_request *_req, g
 		if(ep->ep->descriptor != NULL)
 		{
 			cReq->request_type = ep->ep->descriptor->bmAttributes & USB_ENDPOINT_XFERTYPE_MASK; // Our DWC_OTG_XXX line up with the USB_XXX equivalents.
-			cReq->direction = ((ep->ep->descriptor->bEndpointAddress & USB_DIR_IN) == 0) ? DWC_OTG_REQUEST_OUT : DWC_OTG_REQUEST_IN;
+			cReq->direction = (ep->ep->direction == DWC_OTG_EP_OUT) ? DWC_OTG_REQUEST_OUT : DWC_OTG_REQUEST_IN;
 		}
 		else
 		{

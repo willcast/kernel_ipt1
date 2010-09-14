@@ -192,6 +192,13 @@ typedef struct dwc_otg_core_ep_struct
 	 */
 	unsigned active : 1;
 
+	/** Which direction the EP is currently working in. */
+	unsigned direction : 2;
+#define DWC_OTG_EP_DISABLED 0
+#define DWC_OTG_EP_IN 1
+#define DWC_OTG_EP_OUT 2
+#define DWC_OTG_EP_BIDIR 3
+
 	/** The endpoint's spinlock. */
 	spinlock_t lock;
 

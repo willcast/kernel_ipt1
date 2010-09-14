@@ -137,6 +137,7 @@ int dwc_otg_device_enable_interrupts(dwc_otg_device_t *_dev)
 	gintmsk.b.inepintr = 1;
 	gintmsk.b.outepintr = 1;
 	gintmsk.b.enumdone = 1;
+	gintmsk.b.otgintr = 1;
 	dwc_otg_modify_reg32(&_dev->core->registers->gintmsk, 0, gintmsk.d32);
 
 	return 0;
@@ -227,6 +228,37 @@ irqreturn_t dwc_otg_device_irq(int _irq, void *_dev)
 
 	gintsts.d32 = dwc_otg_read_reg32(&core->registers->gintsts) & dwc_otg_read_reg32(&core->registers->gintmsk);
 	DWC_VERBOSE("%s(%d, %p) gintsts=0x%08x\n", __func__, _irq, _dev, gintsts.d32);
+
+	if(gintsts.b.otgintr)
+	{
+		gotgint_data_t gotgint;
+		
+		gotgint.d32 = dwc_otg_read_reg32(&core->registers->gotgint);
+		DWC_DEBUG("otgintr 0x%08x\n", gotgint.d32);
+
+		if(gotgint.b.sesenddet)
+		{
+			dcfg_data_t dcfg = { .d32 = 0 };
+
+			DWC_DEBUG("session end detected\n");
+
+			// Clear Device Address
+			dcfg.b.devaddr = DWC_DCFG_DEVADDR_MASK;
+			dwc_otg_modify_reg32(&dev->core->device_registers->dcfg, dcfg.d32, 0);
+
+			// Reset EPs
+			dwc_otg_core_ep_reset(dev->core);
+
+			// Notify gadget driver
+			if(dwc_otg_gadget_driver && dwc_otg_gadget_driver->disconnect)
+				dwc_otg_gadget_driver->disconnect(&dwc_otg_gadget);
+		}
+
+		// Clear OTG interrupts
+		dwc_otg_write_reg32(&core->registers->gotgint, 0xffffffff);
+
+		gintclr.b.otgintr = 1;
+	}
 
 	if(gintsts.b.enumdone)
 	{
@@ -556,17 +588,6 @@ void dwc_otg_device_send_ep0(dwc_otg_device_t *_dev)
 	dwc_otg_core_enqueue_request(_dev->core, &_dev->core->endpoints[0], &ep0_in_request);
 }
 
-static void dwc_otg_device_complete_stall_ep0(dwc_otg_core_request_t *_req)
-{
-	dwc_otg_core_t *core = _req->core;
-	dwc_otg_device_t *dev = (dwc_otg_device_t*)_req->data;
-
-	DWC_VERBOSE("%s(%p)\n", __func__, _req);
-	
-	_req->completed_handler = NULL;
-	dwc_otg_device_receive_ep0(dev);
-}
-
 /**
  * dwc_otg_device_complete_ep0
  *
@@ -635,7 +656,7 @@ void dwc_otg_device_complete_ep0(dwc_otg_core_request_t *_req)
 						ep0_in_request.length = 2;
 						dwc_otg_device_send_ep0(dev);
 					}
-					goto done;
+					goto send_zlp;
 
 				case USB_REQ_SET_FEATURE:
 					set = 1;
@@ -657,14 +678,14 @@ void dwc_otg_device_complete_ep0(dwc_otg_core_request_t *_req)
 							{
 								int ep = packet->wValue;
 								if(ep == 0 || ep > core->num_eps)
-									goto fail;
+									goto stall;
 
 								dwc_otg_core_stall_ep(core, &core->endpoints[ep], set);
 							}
 							break;
 
 					}
-					goto done;
+					goto send_zlp;
 
 				case USB_REQ_SET_ADDRESS:
 					{
@@ -676,7 +697,7 @@ void dwc_otg_device_complete_ep0(dwc_otg_core_request_t *_req)
 
 						DWC_VERBOSE("Received address %d.\n", dcfg.b.devaddr);
 					}
-					goto done;
+					goto send_zlp;
 			}
 		}
 
@@ -688,13 +709,13 @@ void dwc_otg_device_complete_ep0(dwc_otg_core_request_t *_req)
 		if(dwc_otg_gadget_driver == NULL)
 		{
 			DWC_WARNING("No gadget driver yet, stalling.\n");
-			goto fail;
+			goto stall;
 		}
 
 		if(dwc_otg_gadget_driver->setup(&dwc_otg_gadget, packet))
 		{
 			DWC_ERROR("Got a setup packet we don't handle properly yet.\n");
-			goto fail;
+			goto stall;
 		}
 
 		goto exit;
@@ -710,14 +731,11 @@ void dwc_otg_device_complete_ep0(dwc_otg_core_request_t *_req)
 
 	goto exit;
 
-fail:
-	//ep0_in_request.completed_handler = &dwc_otg_device_complete_stall_ep0;
-	//ep0_in_request.length = 0;
+stall:
 	dwc_otg_core_stall_ep(core, &core->endpoints[0], 1);
-	//dwc_otg_device_send_ep0(dev);
-	return;
+	goto exit;
 
-done:
+send_zlp:
 	ep0_in_request.length = 0;
 	dwc_otg_device_send_ep0(dev);
 

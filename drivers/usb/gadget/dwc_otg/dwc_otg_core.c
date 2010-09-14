@@ -332,7 +332,6 @@ int dwc_otg_core_start(dwc_otg_core_t *_core)
 	_core->ready = 1;
 
 	// Enable Interrupts
-	gintmsk.b.otgintr = 1;
 	gintmsk.b.inepintr = 1;
 	gintmsk.b.outepintr = 1;
 	dwc_otg_write_reg32(&_core->registers->gintmsk, gintmsk.d32);
@@ -429,16 +428,6 @@ irqreturn_t dwc_otg_core_irq(int _irq, void *_dev)
 
 	DWC_VERBOSE("%s(%d, %p) gintsts=0x%08x\n", __func__, _irq, _dev, gintsts.d32);
 
-	if(gintsts.b.otgintr)
-	{
-		DWC_DEBUG("otgintr\n");
-
-		// Clear OTG interrupts
-		dwc_otg_write_reg32(&core->registers->gotgint, 0xffffffff);
-
-		gintclr.b.otgintr = 1;
-	}
-
 	// Clear the interrupts
 	gintsts.d32 &= ~gintclr.d32;
 	dwc_otg_write_reg32(&core->registers->gintsts, gintclr.d32);
@@ -476,9 +465,21 @@ int dwc_otg_core_enable_ep(dwc_otg_core_t *_core, dwc_otg_core_ep_t *_ep, struct
 	{
 		DWC_WARNING("%s: Tried to set maxpacket too high! (%d->%d)\n", _ep->name, mps, _desc->wMaxPacketSize);
 	}		
-	else
+	else if(_desc->wMaxPacketSize > 0)
 		mps = _desc->wMaxPacketSize;
 
+
+	if(_ep->num == 0)
+	{
+		_ep->direction = DWC_OTG_EP_BIDIR;
+	}
+	else
+	{
+		if((_desc->bEndpointAddress & USB_DIR_IN) != 0)
+			_ep->direction = DWC_OTG_EP_IN;
+		else
+			_ep->direction = DWC_OTG_EP_OUT;
+	}
 
 	spin_lock_irqsave(&_core->lock, flags);
 		
@@ -499,10 +500,12 @@ int dwc_otg_core_enable_ep(dwc_otg_core_t *_core, dwc_otg_core_ep_t *_ep, struct
 		case DWC_DSTS_ENUMSPD_FS_PHY_30MHZ_OR_60MHZ:
 		case DWC_DSTS_ENUMSPD_FS_PHY_48MHZ:
 			diepctl.b.mps = DWC_DEP0CTL_MPS_64;
+			doepctl.b.mps = DWC_DEP0CTL_MPS_64;
 			break;
 
 		case DWC_DSTS_ENUMSPD_LS_PHY_6MHZ:
 			diepctl.b.mps = DWC_DEP0CTL_MPS_8;
+			doepctl.b.mps = DWC_DEP0CTL_MPS_8;
 			break;
 		}
 
@@ -511,48 +514,72 @@ int dwc_otg_core_enable_ep(dwc_otg_core_t *_core, dwc_otg_core_ep_t *_ep, struct
 
 		diepctl.b.usbactep = 1;
 		doepctl.b.usbactep = 1;
-	}
-	else if((_desc->bEndpointAddress & USB_DIR_IN) != 0)
-	{
-		daint.ep.in |= 1 << _ep->num;
-
-		diepctl.b.usbactep = 1;
+		
 		diepctl.b.snak = 1;
-		diepctl.b.mps = mps;
-		diepctl.b.eptype = (_desc->bmAttributes & USB_ENDPOINT_XFERTYPE_MASK);
-		diepctl.b.setd0pid = 1;
+		doepctl.b.snak = 1;
 
-		// Set next EP in transfer loop.
-		{
-			int prevEp = 0;
-			depctl_data_t pdepctl;
+		diepctl.b.stall = 0;
+		doepctl.b.stall = 0;
 
-			do
-			{
-				pdepctl.d32 = dwc_otg_read_reg32(&_core->in_ep_registers[prevEp]->diepctl);
-
-				if(pdepctl.b.nextep == 0)
-					break;
-
-				prevEp = pdepctl.b.nextep;
-			}
-			while(true);
-
-			pdepctl.b.nextep = _ep->num;
-			dwc_otg_write_reg32(&_core->in_ep_registers[prevEp]->diepctl, pdepctl.d32);
-			
-			DWC_DEBUG("Adding %s to chain after %s.\n", _ep->name, _core->endpoints[prevEp].name);
-		}
+		diepctl.b.nextep = 0; // Initialize ring when we enable EP0.
 	}
 	else
 	{
-		daint.ep.out |= 1 << _ep->num;
+		if(_ep->direction & DWC_OTG_EP_IN)
+		{
+			daint.ep.in |= 1 << _ep->num;
 
-		doepctl.b.usbactep = 1;
-		doepctl.b.snak = 1;
-		doepctl.b.mps = mps;
-		doepctl.b.eptype = (_desc->bmAttributes & USB_ENDPOINT_XFERTYPE_MASK); 
-		doepctl.b.setd0pid = 1;
+			diepctl.b.usbactep = 1;
+			diepctl.b.snak = 1;
+			diepctl.b.mps = mps;
+			diepctl.b.eptype = (_desc->bmAttributes & USB_ENDPOINT_XFERTYPE_MASK);
+			diepctl.b.nextep = 0; // We're the last EP now, so the next EP must be 0.
+			diepctl.b.stall = 0;
+			diepctl.b.setd0pid = 1;
+
+			// Set next EP in transfer loop.
+			{
+				int counter;
+				int prevEp = 0;
+				depctl_data_t pdepctl;
+
+				for(counter = 0; counter < _core->num_eps; counter++)
+				{
+					pdepctl.d32 = dwc_otg_read_reg32(&_core->in_ep_registers[prevEp]->diepctl);
+
+					if(pdepctl.b.nextep == 0 || pdepctl.b.nextep == _ep->num)
+						break;
+
+					prevEp = pdepctl.b.nextep;
+				}
+
+				if(counter == _core->num_eps)
+				{
+					DWC_ERROR("Transfer loop corrupt when trying to add %s!\n", _ep->name);
+				}
+				else if(pdepctl.b.nextep != _ep->num)
+				{
+					pdepctl.b.nextep = _ep->num;
+					dwc_otg_write_reg32(&_core->in_ep_registers[prevEp]->diepctl, pdepctl.d32);
+					
+					DWC_DEBUG("Adding %s to chain after %s.\n", _ep->name, _core->endpoints[prevEp].name);
+				}
+				else
+					DWC_DEBUG("%s already in EP TX queue!\n", _ep->name);
+			}
+		}
+
+		if(_ep->direction & DWC_OTG_EP_OUT)
+		{
+			daint.ep.out |= 1 << _ep->num;
+
+			doepctl.b.usbactep = 1;
+			doepctl.b.snak = 1;
+			doepctl.b.mps = mps;
+			doepctl.b.eptype = (_desc->bmAttributes & USB_ENDPOINT_XFERTYPE_MASK); 
+			doepctl.b.stall = 0;
+			doepctl.b.setd0pid = 1;
+		}
 	}
 
 	dwc_otg_write_reg32(&_core->device_registers->daintmsk, daint.d32);
@@ -588,33 +615,39 @@ int dwc_otg_core_disable_ep(dwc_otg_core_t *_core, dwc_otg_core_ep_t *_ep)
 		{
 			// Do nothing, no sense in shutting down EP0.
 		}
-		else if((_ep->descriptor->bEndpointAddress & USB_DIR_IN) != 0)
-		{
-			int i;
-			daint.ep.in &= ~(1 << _ep->num);
-
-			diepctl.b.usbactep = 0;
-			diepctl.b.epena = 0;
-
-			// Remove from transfer loop.
-			for(i = 0; i < _core->num_eps; i++)
-			{
-				depctl_data_t pdepctl;
-				pdepctl.d32 = dwc_otg_read_reg32(&_core->in_ep_registers[i]->diepctl);
-				if(pdepctl.b.nextep == _ep->num)
-				{
-					pdepctl.b.nextep = diepctl.b.nextep;
-					diepctl.b.nextep = 0;
-					dwc_otg_write_reg32(&_core->in_ep_registers[i]->diepctl, pdepctl.d32);
-				}
-			}
-		}
 		else
 		{
-			daint.ep.out &= ~(1 << _ep->num);
+			if(_ep->direction & DWC_OTG_EP_IN)
+			{
+				int i;
+				daint.ep.in &= ~(1 << _ep->num);
 
-			doepctl.b.usbactep = 0;
-			doepctl.b.epena = 0;
+				diepctl.b.usbactep = 0;
+				diepctl.b.epena = 0;
+				diepctl.b.snak = 1;
+
+				// Remove from transfer loop.
+				for(i = 0; i < _core->num_eps; i++)
+				{
+					depctl_data_t pdepctl;
+					pdepctl.d32 = dwc_otg_read_reg32(&_core->in_ep_registers[i]->diepctl);
+					if(pdepctl.b.nextep == _ep->num)
+					{
+						pdepctl.b.nextep = diepctl.b.nextep;
+						diepctl.b.nextep = 0;
+						dwc_otg_write_reg32(&_core->in_ep_registers[i]->diepctl, pdepctl.d32);
+					}
+				}
+			}
+
+			if(_ep->direction & DWC_OTG_EP_OUT)
+			{
+				daint.ep.out &= ~(1 << _ep->num);
+
+				doepctl.b.usbactep = 0;
+				doepctl.b.epena = 0;
+				doepctl.b.snak = 1;
+			}
 		}
 	}
 
@@ -636,13 +669,11 @@ int dwc_otg_core_stall_ep(dwc_otg_core_t *_core, dwc_otg_core_ep_t *_ep, int _st
 {
 	depctl_data_t depctl = { .d32 = 0 };
 	depctl.b.stall = (_stall > 0) ? 1 : 0;
-	depctl.b.cnak = (_stall > 0) ? 1 : 0;
 
 	DWC_VERBOSE("%s(%p, %p) ep=%s\n", __func__, _core, _ep, _ep->name);
 
-	if(_ep->descriptor && (_ep->descriptor->bEndpointAddress & USB_DIR_IN) == 0)
+	if(_ep->direction == DWC_OTG_EP_OUT)
 	{
-		// Out EP
 		dwc_otg_modify_reg32(&_ep->out_registers->doepctl, 0, depctl.d32);
 	}
 	else
@@ -895,11 +926,6 @@ int dwc_otg_core_complete_request(dwc_otg_core_t *_core, dwc_otg_core_request_t 
 	deptsiz.d32 = dwc_otg_read_reg32(deptsiz_ptr);
 	_req->current_load -= deptsiz.b.xfersize;
 	_req->amount_done += _req->current_load;
-
-	/*if(_req->direction == DWC_OTG_REQUEST_IN &&
-			_req->amount_done < _req->length &&
-			_req->current_load == 0)
-		return dwc_otg_core_start_request(_core, _req);*/
 
 	if(_req->amount_done < 0)
 		DWC_ERROR("STRANGE THINGS (%d, %d)!\n", _req->amount_done, deptsiz.b.xfersize);
