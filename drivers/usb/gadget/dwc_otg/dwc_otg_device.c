@@ -577,8 +577,6 @@ void dwc_otg_device_complete_ep0(dwc_otg_core_request_t *_req)
 	dwc_otg_core_t *core = _req->core;
 	dwc_otg_device_t *dev = (dwc_otg_device_t*)_req->data;
 	
-	dwc_otg_core_stall_ep(core, &core->endpoints[0], 0);
-
 	if(_req->cancelled)
 	{
 		DWC_VERBOSE("Shutting down EP0 control channel.\n");
@@ -713,10 +711,10 @@ void dwc_otg_device_complete_ep0(dwc_otg_core_request_t *_req)
 	goto exit;
 
 fail:
-	ep0_in_request.completed_handler = &dwc_otg_device_complete_stall_ep0;
-	ep0_in_request.length = 0;
+	//ep0_in_request.completed_handler = &dwc_otg_device_complete_stall_ep0;
+	//ep0_in_request.length = 0;
 	dwc_otg_core_stall_ep(core, &core->endpoints[0], 1);
-	dwc_otg_device_send_ep0(dev);
+	//dwc_otg_device_send_ep0(dev);
 	return;
 
 done:
