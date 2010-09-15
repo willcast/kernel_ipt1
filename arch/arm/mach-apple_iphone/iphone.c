@@ -210,7 +210,7 @@ void __init iphone_map_io(void)
 	iotable_init(iphone_io_desc, ARRAY_SIZE(iphone_io_desc));
 }
 
-#if defined(CONFIG_IPHONE_3G)||defined(CONFIG_IPHONE_2G)
+#if (defined(CONFIG_IPHONE_3G)||defined(CONFIG_IPHONE_2G)) && defined(CONFIG_MFD_PCF50633)
 
 struct platform_device iphone_backlight = {
 	.name           = "pcf50633-backlight",
@@ -478,9 +478,13 @@ static struct i2c_board_info __initdata iphone_i2c0[] = {
 		I2C_BOARD_INFO("iphone-accel", 0x3a),
 	},
 	{
+#ifdef CONFIG_MFD_PCF50633
 		I2C_BOARD_INFO("pcf50633", 0xe6),
 		.irq = IPHONE_GPIO_IRQS + 0x55,
 		.platform_data = &pcf50633_pdata,
+#else
+		I2C_BOARD_INFO("iphone-pmu", 0xe6),
+#endif
 	},
 	{
 		I2C_BOARD_INFO("tsl2561", 0x92),
@@ -494,9 +498,13 @@ static struct i2c_board_info __initdata iphone_i2c0[] = {
 		I2C_BOARD_INFO("iphone-accel", 0x3a),
 	},
 	{
+#ifdef CONFIG_MFD_PCF50633
 		I2C_BOARD_INFO("pcf50633", 0xe6),
 		.irq = IPHONE_GPIO_IRQS + 0x55,
 		.platform_data = &pcf50633_pdata,
+#else
+		I2C_BOARD_INFO("iphone-pmu", 0xe6),
+#endif
 	},
 	{
 		I2C_BOARD_INFO("wm8991", 0x36),
