@@ -148,6 +148,13 @@ config BACKLIGHT_GENERIC
 	  known as the Corgi backlight driver. If you have a Sharp Zaurus
 	  SL-C7xx, SL-Cxx00 or SL-6000x say y.
 
+config BACKLIGHT_PCF50633
+	tristate "PCF50633 Backlight support (used in iPhone 2G/3G)."
+	depends on BACKLIGHT_CLASS_DEVICE && MFD_PCF50633
+	default n
+	help
+	   Say y to enable the iPhone/iPod backlight support.
+
 config BACKLIGHT_IPHONE
 	tristate "iPhone/iPod Backlight Support"
 	depends on BACKLIGHT_CLASS_DEVICE && (IPHONE_3G || IPHONE_2G || IPODTOUCH_1G)
