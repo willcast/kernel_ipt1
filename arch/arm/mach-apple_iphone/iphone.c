@@ -245,14 +245,15 @@ static void iphone_battery_update_status(struct pcf50633 *pcf, void *unused, int
 
 	power_supply_changed(&iphone_battery);
 
-	schedule_delayed_work(&iphone_battery_info.monitor_work, interval);
+	if(unused)
+		schedule_delayed_work(&iphone_battery_info.monitor_work, interval);
 }
 
 static void iphone_battery_work(struct work_struct* work)
 {
 	const int interval = msecs_to_jiffies(60 * 1000);
 
-	if(platform_get_drvdata(pcf50633->adc_pdev) == NULL || pcf50633_adc_async_read(pcf50633, PCF50633_ADCC1_MUX_BATSNS_RES, PCF50633_ADCC1_AVERAGE_16, &iphone_battery_update_status, NULL) < 0)
+	if(platform_get_drvdata(pcf50633->adc_pdev) == NULL || pcf50633_adc_async_read(pcf50633, PCF50633_ADCC1_MUX_BATSNS_RES, PCF50633_ADCC1_AVERAGE_16, &iphone_battery_update_status, (void*)1) < 0)
 	{
 		dev_err(pcf50633->dev, "failed to get battery level\n");
 		schedule_delayed_work(&iphone_battery_info.monitor_work, interval);
@@ -263,9 +264,22 @@ static int iphone_battery_get_property(struct power_supply *psy,
 		enum power_supply_property psp,
 		union power_supply_propval *val)
 {
+	int charging = 0;
+	int status = 0;
+
+	if(pcf50633 && platform_get_drvdata(pcf50633->mbc_pdev))
+	{
+		status = pcf50633_mbc_get_status(pcf50633);
+		charging = (status & (PCF50633_MBC_USB_ONLINE | PCF50633_MBC_ADAPTER_ONLINE)) != 0;
+	}
+	else
+		dev_err(pcf50633->dev, "failed to contact mbc for charging state.\n");
+
+	dev_info(pcf50633->dev, "status: %d, charging: %d.\n", status, charging);
+
 	switch (psp) {
 		case POWER_SUPPLY_PROP_STATUS:
-			if(pcf50633  && platform_get_drvdata(pcf50633->mbc_pdev) && (pcf50633_mbc_get_status(pcf50633) & (PCF50633_MBC_USB_ACTIVE | PCF50633_MBC_ADAPTER_ACTIVE)))
+			if(charging)
 			{
 				if(iphone_battery_info.level == 100)
 				       	val->intval = POWER_SUPPLY_STATUS_FULL;
@@ -320,6 +334,11 @@ static struct power_supply iphone_battery = {
 	.num_properties = ARRAY_SIZE(iphone_battery_properties),
 	.get_property = iphone_battery_get_property,
 };
+
+static void pcf50633_event_callback(struct pcf50633 *_pcf, int _i)
+{
+	power_supply_changed(&iphone_battery);
+}
 
 static void pcf50633_probe_done(struct pcf50633 *_pcf)
 {
@@ -465,7 +484,7 @@ static struct pcf50633_platform_data pcf50633_pdata = {
 	},
 
 	.probe_done = &pcf50633_probe_done,
-	.mbc_event_callback = NULL,
+	.mbc_event_callback = &pcf50633_event_callback,
 
 	.batteries = iphone_batteries,
 	.num_batteries = ARRAY_SIZE(iphone_batteries),
