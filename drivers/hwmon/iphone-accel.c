@@ -125,14 +125,21 @@ static void iphone_accel_input_poll(struct input_polled_dev *idev)
 {
 	int x,y,z;
 	iphone_accel_read(&x,&y,&z);
+
+#ifdef CONFIG_IPODTOUCH_1G
+	input_report_abs(idev->input, ABS_X, -x);
+#else
 	input_report_abs(idev->input, ABS_X, x);
-#ifdef CONFIG_IPHONE_2G || CONFIG_IPODTOUCH_1G
+#endif
+
+#ifdef CONFIG_IPHONE_3G || CONFIG_IPODTOUCH_1G
+	input_report_abs(idev->input, ABS_Y, y);
+	input_report_abs(idev->input, ABS_Z, z); 
+#else
 	input_report_abs(idev->input, ABS_Y, -y);
 	input_report_abs(idev->input, ABS_Z, -z);
-#else
-	input_report_abs(idev->input, ABS_Y, y);
-	input_report_abs(idev->input, ABS_Z, z);
 #endif
+
 }
 
 static int __devinit iphone_accel_probe(struct i2c_client *i2c,
