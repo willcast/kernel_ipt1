@@ -46,7 +46,7 @@
 
 #define POWER_PCF50633 ((defined(CONFIG_IPHONE_3G)||defined(CONFIG_IPHONE_2G)) && defined(CONFIG_MFD_PCF50633))
 
-#ifdef POWER_PCF50633
+#if POWER_PCF50633
 #include <linux/mfd/pcf50633/core.h>
 #include <linux/mfd/pcf50633/pmic.h>
 #include <linux/mfd/pcf50633/adc.h>
