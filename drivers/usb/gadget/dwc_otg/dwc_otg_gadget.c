@@ -1,3 +1,16 @@
+/*
+ * dwc_otg_gadget.c - gadget API specific functions
+ *
+ * Author: Ricky Taylor
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ *
+ * Description: MIPS USB IP core family device controller
+ *              Structures, registers and logging macros
+ */
+
 #include "dwc_otg_gadget.h"
 
 #include <linux/errno.h>

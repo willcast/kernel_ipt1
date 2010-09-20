@@ -1,3 +1,13 @@
+/*
+ * dwc_otg_core.c - core functions for the DWC OTG chip
+ *
+ * Author: Ricky Taylor
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ */
+
 #include "dwc_otg_core.h"
 
 #include <linux/errno.h>
@@ -785,7 +795,9 @@ int dwc_otg_core_start_request(dwc_otg_core_t *_core, dwc_otg_core_request_t *_r
 			_core, _req, _req->request_type, (void*)_req->dma_address, ep->name, dir, _req->length, _req->amount_done);
 #endif
 
-	spin_lock_irqsave(&ep->lock, flags);
+	// TODO: Does this need to be locked by the
+	// core or the EP?
+	spin_lock_irqsave(&_core->lock, flags);
 
 	// Reset Flags
 	_req->active = 1;
@@ -876,7 +888,7 @@ int dwc_otg_core_start_request(dwc_otg_core_t *_core, dwc_otg_core_request_t *_r
 	// Set the control register. (This starts the transfer!)
 	dwc_otg_write_reg32(depctl_ptr, depctl.d32);
 
-	spin_unlock_irqrestore(&ep->lock, flags);
+	spin_unlock_irqrestore(&_core->lock, flags);
 
 	return 0;
 }
@@ -913,7 +925,9 @@ int dwc_otg_core_complete_request(dwc_otg_core_t *_core, dwc_otg_core_request_t 
 		deptsiz_ptr = &ep->in_registers->dieptsiz;
 	}
 	
-	spin_lock_irqsave(&ep->lock, flags);
+	// TODO: Does this need to be locked by the core
+	// or the EP?
+	spin_lock_irqsave(&_core->lock, flags);
 
 	// Remove us from the EP queue.
 	if(_req->active)
@@ -946,7 +960,7 @@ int dwc_otg_core_complete_request(dwc_otg_core_t *_core, dwc_otg_core_request_t 
 	else
 		ep->active = 0;
 
-	spin_unlock_irqrestore(&ep->lock, flags);
+	spin_unlock_irqrestore(&_core->lock, flags);
 
 	// Call the handler
 	DWC_VERBOSE("%s: calling handler. cancel=%p, compl=%p\n", __func__, _req->cancelled_handler, req->completed_handler);

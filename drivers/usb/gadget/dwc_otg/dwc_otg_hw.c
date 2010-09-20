@@ -1,3 +1,13 @@
+/*
+ * dwc_otg_hw.c - hardware-specific code
+ *
+ * Author: Ricky Taylor
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ */
+
 #include "dwc_otg_hw.h"
 
 #include <linux/delay.h>

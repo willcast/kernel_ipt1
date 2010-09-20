@@ -1,8 +1,10 @@
 /*
- *  Backlight Driver for the iPhone Backlight
+ *  Backlight Driver for the PCF50633 PMU
  *
- *  Copyright (c) 2010 Patrick Wildt
+ *  Copyright (c) 2010 Ricky Taylor
+ *  Portions (c) Patrick Wildt, Claudio Nieder.
  *
+ *  Based on iphone_bl.c by Patrick Wildt
  *  Based on kb6886_bl.c by Claudio Nieder
  *
  *  This program is free software; you can redistribute it and/or modify

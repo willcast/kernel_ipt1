@@ -1,3 +1,13 @@
+/*
+ * dwc_otg_device.c - device-mode specific functions
+ *
+ * Author: Ricky Taylor
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ */
+
 #include "dwc_otg_device.h"
 #include "dwc_otg_hw.h"
 #include "dwc_otg_gadget.h"
@@ -262,6 +272,8 @@ irqreturn_t dwc_otg_device_irq(int _irq, void *_dev)
 
 	if(gintsts.b.enumdone)
 	{
+		int dwcSpeed;
+		int i;
 		dsts_data_t dsts;
 
 		DWC_DEBUG("enumdone\n");
@@ -278,17 +290,24 @@ irqreturn_t dwc_otg_device_irq(int _irq, void *_dev)
 		{
 		case DWC_DSTS_ENUMSPD_HS_PHY_30MHZ_OR_60MHZ:
 			dwc_otg_gadget.speed = USB_SPEED_HIGH;
+			dwcSpeed = DWC_OTG_HIGH_SPEED;
 			break;
 
 		case DWC_DSTS_ENUMSPD_FS_PHY_30MHZ_OR_60MHZ:
 		case DWC_DSTS_ENUMSPD_FS_PHY_48MHZ:
 			dwc_otg_gadget.speed = USB_SPEED_FULL;
+			dwcSpeed = DWC_OTG_FULL_SPEED;
 			break;
 
 		case DWC_DSTS_ENUMSPD_LS_PHY_6MHZ:
 			dwc_otg_gadget.speed = USB_SPEED_LOW;
+			dwcSpeed = DWC_OTG_LOW_SPEED;
 			break;
 		}
+		
+		// Update the endpoint speeds.
+		for(i = 1; i < core->num_eps; i++)
+			core->endpoints[i].speed = dwcSpeed;
 
 		gintclr.b.enumdone = 1;
 	}

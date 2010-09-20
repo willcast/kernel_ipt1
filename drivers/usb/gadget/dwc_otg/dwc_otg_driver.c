@@ -1,3 +1,13 @@
+/*
+ * dwc_otg_driver.c - platform-device specific functions
+ *
+ * Author: Ricky Taylor
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ */
+
 #include "dwc_otg_driver.h"
 
 #include <linux/irq.h>
@@ -212,6 +222,6 @@ static void dwc_otg_driver_exit(void)
 }
 module_exit(dwc_otg_driver_exit);
 
-MODULE_DESCRIPTION("iPhone Synopsys DesignWare Core High-Speed USB OTG Driver");
-MODULE_AUTHOR("Ricky Taylor");
+MODULE_DESCRIPTION("Synopsys On-the-Go USB DesignWare Core");
+MODULE_AUTHOR("Ricky Taylor <rickytaylor26@gmail.com>");
 MODULE_LICENSE("GPL");

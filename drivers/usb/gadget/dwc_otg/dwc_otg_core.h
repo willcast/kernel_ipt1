@@ -1,3 +1,13 @@
+/*
+ * dwc_otg_core.h - header for core functions for the DWC OTG chip
+ *
+ * Author: Ricky Taylor
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ */
+
 #ifndef  __DWC_OTG_CORE_H__
 #define  __DWC_OTG_CORE_H__
 
