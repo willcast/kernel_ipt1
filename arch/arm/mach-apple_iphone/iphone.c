@@ -44,7 +44,9 @@
 
 #include <ftl/nand.h>
 
-#ifdef CONFIG_IPHONE_3G
+#define POWER_PCF50633 ((defined(CONFIG_IPHONE_3G)||defined(CONFIG_IPHONE_2G)) && defined(CONFIG_MFD_PCF50633))
+
+#ifdef POWER_PCF50633
 #include <linux/mfd/pcf50633/core.h>
 #include <linux/mfd/pcf50633/pmic.h>
 #include <linux/mfd/pcf50633/adc.h>
@@ -210,7 +212,7 @@ void __init iphone_map_io(void)
 	iotable_init(iphone_io_desc, ARRAY_SIZE(iphone_io_desc));
 }
 
-#if (defined(CONFIG_IPHONE_3G)||defined(CONFIG_IPHONE_2G)) && defined(CONFIG_MFD_PCF50633)
+#if POWER_PCF50633
 
 struct platform_device iphone_backlight = {
 	.name           = "pcf50633-backlight",
@@ -296,7 +298,7 @@ static int iphone_battery_get_property(struct power_supply *psy,
 			/* TODO: we might need to set POWER_SUPPLY_HEALTH_OVERHEAT if we figure out the battery temperature stuff */
 			break;
 		case POWER_SUPPLY_PROP_PRESENT:
-			val->intval = 1;
+			val->intval = (iphone_battery_info.voltage > 0) ? 1: 0;
 			break;
 		case POWER_SUPPLY_PROP_TECHNOLOGY:
 			val->intval = POWER_SUPPLY_TECHNOLOGY_LION;
@@ -337,6 +339,11 @@ static struct power_supply iphone_battery = {
 
 static void pcf50633_event_callback(struct pcf50633 *_pcf, int _i)
 {
+	if(platform_get_drvdata(pcf50633->adc_pdev) == NULL || pcf50633_adc_async_read(pcf50633, PCF50633_ADCC1_MUX_BATSNS_RES, PCF50633_ADCC1_AVERAGE_16, &iphone_battery_update_status, NULL) < 0)
+	{
+		dev_err(pcf50633->dev, "failed to get battery level\n");
+	}
+
 	power_supply_changed(&iphone_battery);
 }
 
@@ -359,6 +366,7 @@ static void pcf50633_probe_done(struct pcf50633 *_pcf)
 	if(platform_device_register(&iphone_backlight) < 0)
 		dev_err(_pcf->dev, "failed to create backlight driver!\n");
 	
+	// Start the battery level watcher.
 	iphone_battery_work(NULL);
 }
 
@@ -497,7 +505,7 @@ static struct i2c_board_info __initdata iphone_i2c0[] = {
 		I2C_BOARD_INFO("iphone-accel", 0x3a),
 	},
 	{
-#ifdef CONFIG_MFD_PCF50633
+#if POWER_PCF50633
 		I2C_BOARD_INFO("pcf50633", 0xe6),
 		.irq = IPHONE_GPIO_IRQS + 0x55,
 		.platform_data = &pcf50633_pdata,
@@ -517,7 +525,7 @@ static struct i2c_board_info __initdata iphone_i2c0[] = {
 		I2C_BOARD_INFO("iphone-accel", 0x3a),
 	},
 	{
-#ifdef CONFIG_MFD_PCF50633
+#if POWER_PCF50633
 		I2C_BOARD_INFO("pcf50633", 0xe6),
 		.irq = IPHONE_GPIO_IRQS + 0x55,
 		.platform_data = &pcf50633_pdata,
