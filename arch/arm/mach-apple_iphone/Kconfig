@@ -22,4 +22,22 @@ config IPODTOUCH_1G
 
 endchoice
 
+config IPHONE_PMU
+	bool "iPhone PMU Driver (obsolete)"
+	default n
+	help
+		Select this option to enable the obsolete PMU driver.
+
+config IPHONE_BATTERY
+	bool "iPhone Battery Driver"
+	depends on IPHONE_PMU
+	help
+		Select this option to enable the iPhone battery support with the PMU.
+
+config IPHONE_BACKLIGHT
+	bool "iPhone Backlight Driver"
+	depends on IPHONE_PMU && BACKLIGHT_CLASS_DEVICE
+	help
+		Select this option to enable the iPhone backlight driver.
+
 endmenu
