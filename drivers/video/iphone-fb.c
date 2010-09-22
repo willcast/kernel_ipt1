@@ -1,14 +1,18 @@
 /*
- *  arch/arm/mach-apple_iphone/lcd.c
+ * iphone-fb.c - A framebuffer driver for the iPhone LCD screen.
  *
- *  Copyright (C) 2008 Yiduo Wang
+ * Copyright 2010 Ricky Taylor
+ * 	- Added sleep support.
  *
- *  Adapted from linux/drivers/video/skeletonfb.c
+ * Copyright 2008 Yidou Wang
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * This file is part of iDroid. An android distribution for Apple products.
+ * For more information, please visit http://www.idroidproject.org/.
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * as published by the Free Software Foundation; either version 2
+ * of the License, or (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -17,7 +21,7 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
 
 #include <linux/module.h>
@@ -34,15 +38,25 @@
 #include <linux/dma-mapping.h>
 #include <linux/interrupt.h>
 
-#include <mach/hardware.h>
+#ifdef CONFIG_HAS_EARLYSUSPEND
+#include <linux/earlysuspend.h>
+#endif
 
-#define DEFAULT_WINDOW_NUM 2
-#define LCD IO_ADDRESS(0x38900000)
-#define LCD_INTERRUPT 0xD
-#define VIDINTCON0 0x14
-#define VIDINTCON1 0x18
-#define BYTES_PER_PIXEL 2
-#define NUMBER_OF_BUFFERS 2
+#include <mach/map.h>
+#include <mach/hardware.h>
+#include <mach/iphone-clock.h>
+#include <mach/gpio.h>
+
+#define DEFAULT_WINDOW_NUM 	2
+#define LCD					IO_ADDRESS(0x38900000)
+#define LCD_INTERRUPT 		0xD
+#define LCD_POWER			0x100
+#define LCD_CLOCKGATE1		0x07
+#define LCD_CLOCKGATE2		0x1D
+#define VIDINTCON0			0x14
+#define VIDINTCON1			0x18
+#define BYTES_PER_PIXEL		2
+#define NUMBER_OF_BUFFERS	2
 
 DECLARE_COMPLETION(vsync_completion);
 
@@ -70,12 +84,13 @@ static void iphone_set_fb_address(int window, dma_addr_t address) {
 
 	__raw_writel(address, windowBase + 8);
 }
-    /*
-     *  This is just simple sample code.
-     *
-     *  No warranty that it actually compiles.
-     *  Even less warranty that it actually works :-)
-     */
+
+/*
+ *  This is just simple sample code.
+ *
+ *  No warranty that it actually compiles.
+ *  Even less warranty that it actually works :-)
+ */
 
 /*
  * Driver data
@@ -130,6 +145,20 @@ static struct fb_var_screeninfo iphonefb_var __devinitdata = {
 	.activate = FB_ACTIVATE_NOW
 };
 
+// TODO: Make this thread-safe!
+static void iphonefb_wait_for_vsync(void)
+{
+	INIT_COMPLETION(vsync_completion);
+
+	/* Clear any already pending interrupts */
+	writel(1, LCD + VIDINTCON1);
+	
+	/* Enable frame interrupts */
+	writel(0x7F01, LCD + VIDINTCON0);
+
+	wait_for_completion(&vsync_completion);
+}
+
 /*
  *  If your driver supports multiple boards, you should make the
  *  below data types arrays, or allocate them dynamically (using kmalloc()).
@@ -161,40 +190,40 @@ static struct fb_fix_screeninfo iphonefb_fix __devinitdata = {
 	.accel =	FB_ACCEL_NONE,
 };
 
-    /*
-     * 	Modern graphical hardware not only supports pipelines but some
-     *  also support multiple monitors where each display can have its
-     *  its own unique data. In this case each display could be
-     *  represented by a separate framebuffer device thus a separate
-     *  struct fb_info. Now the struct iphonefb_par represents the graphics
-     *  hardware state thus only one exist per card. In this case the
-     *  struct iphonefb_par for each graphics card would be shared between
-     *  every struct fb_info that represents a framebuffer on that card.
-     *  This allows when one display changes it video resolution (info->var)
-     *  the other displays know instantly. Each display can always be
-     *  aware of the entire hardware state that affects it because they share
-     *  the same iphonefb_par struct. The other side of the coin is multiple
-     *  graphics cards that pass data around until it is finally displayed
-     *  on one monitor. Such examples are the voodoo 1 cards and high end
-     *  NUMA graphics servers. For this case we have a bunch of pars, each
-     *  one that represents a graphics state, that belong to one struct
-     *  fb_info. Their you would want to have *par point to a array of device
-     *  states and have each struct fb_ops function deal with all those
-     *  states. I hope this covers every possible hardware design. If not
-     *  feel free to send your ideas at jsimmons@users.sf.net
-     */
+/*
+ * 	Modern graphical hardware not only supports pipelines but some
+ *  also support multiple monitors where each display can have its
+ *  its own unique data. In this case each display could be
+ *  represented by a separate framebuffer device thus a separate
+ *  struct fb_info. Now the struct iphonefb_par represents the graphics
+ *  hardware state thus only one exist per card. In this case the
+ *  struct iphonefb_par for each graphics card would be shared between
+ *  every struct fb_info that represents a framebuffer on that card.
+ *  This allows when one display changes it video resolution (info->var)
+ *  the other displays know instantly. Each display can always be
+ *  aware of the entire hardware state that affects it because they share
+ *  the same iphonefb_par struct. The other side of the coin is multiple
+ *  graphics cards that pass data around until it is finally displayed
+ *  on one monitor. Such examples are the voodoo 1 cards and high end
+ *  NUMA graphics servers. For this case we have a bunch of pars, each
+ *  one that represents a graphics state, that belong to one struct
+ *  fb_info. Their you would want to have *par point to a array of device
+ *  states and have each struct fb_ops function deal with all those
+ *  states. I hope this covers every possible hardware design. If not
+ *  feel free to send your ideas at jsimmons@users.sf.net
+ */
 
-    /*
-     *  If your driver supports multiple boards or it supports multiple
-     *  framebuffers, you should make these arrays, or allocate them
-     *  dynamically using framebuffer_alloc() and free them with
-     *  framebuffer_release().
-     */
+/*
+ *  If your driver supports multiple boards or it supports multiple
+ *  framebuffers, you should make these arrays, or allocate them
+ *  dynamically using framebuffer_alloc() and free them with
+ *  framebuffer_release().
+ */
 
-    /*
-     * Each one represents the state of the hardware. Most hardware have
-     * just one hardware state. These here represent the default state(s).
-     */
+/*
+ * Each one represents the state of the hardware. Most hardware have
+ * just one hardware state. These here represent the default state(s).
+ */
 
 int iphonefb_init(void);
 
@@ -253,24 +282,13 @@ static int iphonefb_pan_display(struct fb_var_screeninfo *var, struct fb_info *i
 {
 	iphone_set_fb_address(DEFAULT_WINDOW_NUM, info->fix.smem_start + (info->var.xres * BYTES_PER_PIXEL * var->yoffset));
 
-	/* We need to wait until the next vsync before allowing whoever requested the pan permission to write to buffer space */
-
-	INIT_COMPLETION(vsync_completion);
-
-	/* Clear any already pending interrupts */
-	writel(1, LCD + VIDINTCON1);
-	
-	/* Enable frame interrupts */
-	writel(0x7F01, LCD + VIDINTCON0);
-
-	wait_for_completion(&vsync_completion);
-
+	iphonefb_wait_for_vsync();
 	return 0;
 }
 
-    /*
-     *  Frame buffer operations
-     */
+/*
+ *  Frame buffer operations
+ */
 
 static struct fb_ops iphonefb_ops = {
 	.owner		= THIS_MODULE,
@@ -282,7 +300,6 @@ static struct fb_ops iphonefb_ops = {
 	.fb_imageblit	= cfb_imageblit,	/* Needed !!! */
 };
 
-#define LCD_INTERRUPT 0xD
 
 static irqreturn_t lcd_frame_irq(int irq, void* pToken)
 {
@@ -293,16 +310,111 @@ static irqreturn_t lcd_frame_irq(int irq, void* pToken)
 	writel(0x7F00, LCD + VIDINTCON0);
 	
 	/* Notify pan operation */
-	complete(&vsync_completion);
+	complete_all(&vsync_completion);
 	
 	return IRQ_HANDLED;
 }
 
+/*
+ * Power Management
+ */
+
+
+/**
+ * This function changes the LCD's power state,
+ * never call it. Not ever.
+ *
+ * There is a good reason for this:
+ * We don't have the code for re-initializing the
+ * LCD display, and like hell am I going to port it
+ * from OpeniBoot. -- Ricky26
+ */
+static int iphonefb_power(int _pwr)
+{
+	if(_pwr > 0)
+		iphone_power_ctrl(LCD_POWER, 1);
+
+	iphone_clock_gate_switch(LCD_CLOCKGATE1, _pwr);
+	iphone_clock_gate_switch(LCD_CLOCKGATE2, _pwr);
+
+	if(_pwr <= 0)
+		iphone_power_ctrl(LCD_POWER, 0);
+
+	return 0;
+}
+
+#ifdef CONFIG_PM
+#ifdef CONFIG_HAS_EARLYSUSPEND
+
+// Guh, DAMN YOU EARLY SUSPEND!
+static struct fb_info *iphone_suspend_info = NULL;
+
+static void iphonefb_early_suspend(struct early_suspend *_susp)
+{
+	if(iphone_suspend_info)
+	{
+		memset(iphone_suspend_info->screen_base, 0xFFFFFFFF, 320*480*4);
+
+		iphonefb_wait_for_vsync();
+		iphonefb_wait_for_vsync();
+	}
+
+	iphone_gpio_pin_output(0x3, 0);
+}
+
+static void iphonefb_late_resume(struct early_suspend *_susp)
+{
+	if(iphone_suspend_info != NULL)
+		memset(iphone_suspend_info->screen_base, 0x00000000, 320*480*4);
+
+	iphone_gpio_custom_io(0x3, 0x2);
+}
+
+struct early_suspend iphone_early_suspend = {
+	.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN + 1,
+	.suspend = &iphonefb_early_suspend,
+	.resume = &iphonefb_late_resume,
+};
+
+#define iphonefb_suspend NULL
+#define iphonefb_resume NULL
+#else
+
+static int iphonefb_suspend(struct platform_device *_pdev, pm_message_t _state)
+{
+	struct fb_info *info = (struct fb_info*)platform_device_get_drvdata(_pdev);
+	if(info != NULL)
+	{
+		memset(info->screen_base, 0xFFFFFFFF, 320*480*4);
+
+		iphonefb_wait_for_vsync();
+		iphonefb_wait_for_vsync();
+	}
+
+	iphone_gpio_pin_output(0x3, 0);
+	return 0;
+}
+
+static int iphonefb_resume(struct platform_device *_pdev)
+{
+	struct fb_info *info = (struct fb_info*)platform_device_get_drvdata(_pdev);
+	if(info != NULL)
+		memset(info->screen_base, 0x00000000, 320*480*4);
+
+	iphone_gpio_custom_io(0x3, 0x2);
+	
+	return 0;
+}
+
+#endif
+#endif
+
+
 /* ------------------------------------------------------------------------- */
 
-    /*
-     *  Initialization
-     */
+/*
+ *  Initialization
+ */
 
 /* static int __init xxfb_probe (struct platform_device *pdev) -- for platform devs */
 static int __init iphonefb_probe(struct platform_device *pdev)
@@ -313,6 +425,12 @@ static int __init iphonefb_probe(struct platform_device *pdev)
     dma_addr_t dma_map;
     u32 framesize;
     int ret;
+	
+	iphonefb_power(1);
+
+#ifdef CONFIG_HAS_EARLYSUSPEND
+	register_early_suspend(&iphone_early_suspend);
+#endif
 
     /* Disable frame interrupts */
     writel(0x7F00, LCD + 0x14);
@@ -396,6 +514,14 @@ static int __init iphonefb_probe(struct platform_device *pdev)
     printk(KERN_INFO "fb%d: %s frame buffer device\n", info->node,
 	   info->fix.id);
     platform_set_drvdata(pdev, info);
+
+#ifdef CONFIG_PM
+#ifdef CONFIG_HAS_EARLYSUSPEND
+	// ALERT: DIRTY HACK! -- Ricky26
+	iphone_suspend_info = info;
+#endif
+#endif
+
     return 0;
 }
 
@@ -405,6 +531,10 @@ static int __init iphonefb_probe(struct platform_device *pdev)
 static int __init iphonefb_remove(struct platform_device *pdev)
 {
 	struct fb_info *info = platform_get_drvdata(pdev);
+
+#ifdef CONFIG_HAS_EARLYSUSPEND
+	unregister_early_suspend(&iphone_early_suspend);
+#endif
 
 	if (info) {
 		unregister_framebuffer(info);
@@ -417,9 +547,6 @@ static int __init iphonefb_remove(struct platform_device *pdev)
 }
 
 /* for platform devices */
-
-#define iphonefb_suspend NULL
-#define iphonefb_resume NULL
 
 static struct platform_driver iphonefb_driver = {
 	.probe = iphonefb_probe,
