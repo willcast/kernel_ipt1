@@ -1,6 +1,17 @@
 #ifndef IPHONE_HW_PMU_H
 #define IPHONE_HW_PMU_H
 
+#define POWER_PCF50633 ((defined(CONFIG_IPHONE_3G)||defined(CONFIG_IPHONE_2G)||defined(CONFIG_IPODTOUCH_1G)) && defined(CONFIG_MFD_PCF50633))
+
+#if POWER_PCF50633
+#include <linux/mfd/pcf50633/core.h>
+#include <linux/mfd/pcf50633/pmic.h>
+#include <linux/mfd/pcf50633/adc.h>
+#include <linux/mfd/pcf50633/mbc.h>
+#endif
+
+#ifdef CONFIG_IPHONE_PMU
+
 #ifdef CONFIG_IPODTOUCH_1G
 #define PMU_I2C_BUS 1
 #else
@@ -99,6 +110,14 @@ void iphone_pmu_charge_settings(int UseUSB, int SuspendUSB, int StopCharger);
 PowerSupplyType iphone_pmu_get_power_supply(void);
 
 int iphone_pmu_write_regs(const PMURegisterData* regs, int num);
+
+#endif
+
+#if POWER_PCF50633
+extern struct pcf50633_platform_data pcf50633_pdata;
+#endif
+
+void iphone_init_suspend(void);
 
 #endif
 
