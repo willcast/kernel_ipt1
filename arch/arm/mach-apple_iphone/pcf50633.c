@@ -1,5 +1,30 @@
-#include <mach/pmu.h>
+/*
+ * pcf50633 - PCF50633 Platform-side data and code.
+ *
+ * Copyright 2010 Ricky Taylor
+ *
+ * This file is part of iDroid. An android distribution for Apple products.
+ * For more information, please visit http://www.idroidproject.org/.
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * as published by the Free Software Foundation; either version 2
+ * of the License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+ */
+
+#include <linux/delay.h>
 #include <linux/power_supply.h>
+
+#include <mach/pmu.h>
 
 #if POWER_PCF50633
 
@@ -286,4 +311,16 @@ struct pcf50633_platform_data pcf50633_pdata = {
 	.batteries = iphone_batteries,
 	.num_batteries = ARRAY_SIZE(iphone_batteries),
 };
+
 #endif
+
+void pcf50633_power_off(void)
+{
+#if POWER_PCF50633
+	if(pcf50633)
+	{
+		pcf50633_reg_set_bit_mask(pcf50633, PCF50633_REG_OOCSHDWN, 1, 1);
+		mdelay(500);
+	}
+#endif
+}
