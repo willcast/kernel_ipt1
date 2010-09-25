@@ -319,8 +319,12 @@ void pcf50633_power_off(void)
 #if POWER_PCF50633
 	if(pcf50633)
 	{
-		pcf50633_reg_set_bit_mask(pcf50633, PCF50633_REG_OOCSHDWN, 1, 1);
-		mdelay(500);
+		pcf50633_reg_write(pcf50633, 0x0d, 0x1); // Only ONKEY can wake the device up.
+		pcf50633_reg_write(pcf50633, 0x0f, 0x7); // Set the debounce for ONKEY to 2s.
+		pcf50633_reg_write(pcf50633, 0x76, 0x80); // No idea what this does.
+		pcf50633_reg_write(pcf50633, PCF50633_REG_OOCSHDWN, 2 | 1); // Yes, we're setting a reserved bit.
+
+		printk("PCF50633 shutdown complete.\n");
 	}
 #endif
 }
