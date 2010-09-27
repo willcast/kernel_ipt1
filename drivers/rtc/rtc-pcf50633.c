@@ -18,10 +18,6 @@
  *
  */
 
-// TODO: Remove this
-#define DEBUG
-#define VERBOSE
-
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/init.h>
@@ -228,6 +224,7 @@ static int pcf50633_rtc_set_time(struct device *dev, struct rtc_time *tm)
 
 	rtc = dev_get_drvdata(dev);
 
+#ifdef CONFIG_RTC_DRV_PCF50633_OFFSET
 	dev_dbg(dev, "RTC_TIME: %u.%u.%u %u:%u:%u\n",
 		tm->tm_mday, tm->tm_mon, tm->tm_year,
 		tm->tm_hour, tm->tm_min, tm->tm_sec);
@@ -260,6 +257,53 @@ static int pcf50633_rtc_set_time(struct device *dev, struct rtc_time *tm)
 		pcf50633_irq_unmask(rtc->pcf, PCF50633_IRQ_SECOND);
 	if (!alarm_masked)
 		pcf50633_irq_unmask(rtc->pcf, PCF50633_IRQ_ALARM);
+
+#else
+	ret = pcf50633_read_block(rtc->pcf, PCF50633_REG_RTCSC,
+					    PCF50633_TI_EXTENT,
+					    &pcf_tm.time[0]);
+	if (ret != PCF50633_TI_EXTENT) {
+		dev_err(dev, "Failed to read time\n");
+		return -EIO;
+	}
+
+	dev_dbg(dev, "PCF_TIME: %02x.%02x.%02x %02x:%02x:%02x\n",
+		pcf_tm.time[PCF50633_TI_DAY],
+		pcf_tm.time[PCF50633_TI_MONTH],
+		pcf_tm.time[PCF50633_TI_YEAR],
+		pcf_tm.time[PCF50633_TI_HOUR],
+		pcf_tm.time[PCF50633_TI_MIN],
+		pcf_tm.time[PCF50633_TI_SEC]);
+
+	s32 time = mktime(
+		2000 + bcd2bin(bcd2bin(pcf_tm.time[PCF50633_TI_YEAR])),	// Years
+		bcd2bin(pcf_tm.time[PCF50633_TI_MONTH]),				// Months
+		bcd2bin(pcf_tm.time[PCF50633_TI_DAY]),					// Days
+		bcd2bin(pcf_tm.time[PCF50633_TI_HOUR]),					// Hours
+		bcd2bin(pcf_tm.time[PCF50633_TI_MIN]),					// Minutes
+		bcd2bin(pcf_tm.time[PCF50633_TI_SEC])					// Seconds
+		); 
+
+	s32 destTime = rtc_tm_to_time(tm);
+	s32 new_offset = destTime-time;
+
+	second_masked = pcf50633_irq_mask_get(rtc->pcf, PCF50633_IRQ_SECOND);
+	alarm_masked = pcf50633_irq_mask_get(rtc->pcf, PCF50633_IRQ_ALARM);
+
+	if (!second_masked)
+		pcf50633_irq_mask(rtc->pcf, PCF50633_IRQ_SECOND);
+	if (!alarm_masked)
+		pcf50633_irq_mask(rtc->pcf, PCF50633_IRQ_ALARM);
+
+	ret = pcf50633_write_block(rtc->pcf, PCF50633_REG_RTCOF,
+					     sizeof(new_offset),
+					     &new_offset);
+
+	if (!second_masked)
+		pcf50633_irq_unmask(rtc->pcf, PCF50633_IRQ_SECOND);
+	if (!alarm_masked)
+		pcf50633_irq_unmask(rtc->pcf, PCF50633_IRQ_ALARM);
+#endif
 
 	return ret;
 }
