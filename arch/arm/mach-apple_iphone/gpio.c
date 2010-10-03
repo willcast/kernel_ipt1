@@ -63,6 +63,7 @@ static struct gpio_keys_button iphone_gpio_keys_table[] = {
 		.debounce_interval = 20,
 	},
 	/* we'll map these to more useful keys until somebody comes up with a better solution */
+#ifndef CONFIG_IPODTOUCH_1G
     {
             .gpio = GPIO_BUTTONS_VOLUP,
             .code = 61,
@@ -79,6 +80,7 @@ static struct gpio_keys_button iphone_gpio_keys_table[] = {
             .wakeup = 0,
             .debounce_interval = 20,
     },
+#endif
 /*	{
 		.gpio = GPIO_BUTTONS_VOLUP,
 		.code = 115,
