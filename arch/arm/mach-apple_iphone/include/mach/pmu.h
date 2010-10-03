@@ -117,6 +117,8 @@ int iphone_pmu_write_regs(const PMURegisterData* regs, int num);
 extern struct pcf50633_platform_data pcf50633_pdata;
 #endif
 
+extern void pcf50633_power_off(void);
+
 void iphone_init_suspend(void);
 
 #endif

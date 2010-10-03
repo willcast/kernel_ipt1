@@ -583,6 +583,13 @@ config RTC_DRV_PCF50633
 	  If you say yes here you get support for the RTC subsystem of the
 	  NXP PCF50633 used in embedded systems.
 
+config RTC_DRV_PCF50633_OFFSET
+	depends on MFD_PCF50633
+	bool "Enable the offset register on PFC50633."
+	help
+		If you say yes here, the offset register will be used to calculate
+		the RTC time in addition to the time registers.
+
 config RTC_DRV_AB3100
 	tristate "ST-Ericsson AB3100 RTC"
 	depends on AB3100_CORE

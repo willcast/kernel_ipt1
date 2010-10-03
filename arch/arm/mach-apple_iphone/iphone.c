@@ -24,6 +24,7 @@
 #include <linux/io.h>
 #include <linux/i2c.h>
 #include <linux/power_supply.h>
+#include <linux/pm.h>
 
 #include <mach/hardware.h>
 #include <asm/irq.h>
@@ -44,6 +45,9 @@
 #include <linux/platform_device.h>
 
 #include <ftl/nand.h>
+
+#include <asm/system.h>
+#include <mach/system.h>
 
 static struct map_desc iphone_io_desc[] __initdata = {
 	{
@@ -278,8 +282,18 @@ static struct i2c_board_info __initdata iphone_i2c1[] = {
 #endif
 };
 
+void iphone_power_off(void)
+{
+#if POWER_PCF50633
+	pcf50633_power_off();
+#endif
+	arch_reset('h', NULL);
+}
+
 void __init iphone_init(void)
 {
+	pm_power_off = &iphone_power_off;
+
 	printk("iphone: platform init\r\n");
 	iphone_dma_setup();
 
