@@ -132,12 +132,12 @@ static void iphone_accel_input_poll(struct input_polled_dev *idev)
 	input_report_abs(idev->input, ABS_X, x);
 #endif
 
-#ifdef CONFIG_IPHONE_3G || CONFIG_IPODTOUCH_1G
-	input_report_abs(idev->input, ABS_Y, y);
-	input_report_abs(idev->input, ABS_Z, z); 
-#else
+#ifdef CONFIG_IPHONE_2G
 	input_report_abs(idev->input, ABS_Y, -y);
-	input_report_abs(idev->input, ABS_Z, -z);
+	input_report_abs(idev->input, ABS_Z, -z); 
+#else
+	input_report_abs(idev->input, ABS_Y, y);
+	input_report_abs(idev->input, ABS_Z, z);
 #endif
 
 }
