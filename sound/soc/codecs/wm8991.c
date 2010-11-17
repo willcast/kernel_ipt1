@@ -1320,6 +1320,10 @@ static int wm8991_hw_params(struct snd_pcm_substream *substream,
 
 static int wm8991_mute(struct snd_soc_dai *dai, int mute)
 {
+	if (mute)
+		wm8991_write(codec, wm8991_read_reg_cache(codec, WM8991_DAC_CTRL) | WM8991_DAC_MUTE);
+	else
+		wm8991_write(codec, wm8991_read_reg_cache(codec, WM8991_DAC_CTRL) &~ WM8991_DAC_MUTE);
 	return 0;
 }
 
@@ -1383,7 +1387,8 @@ static int wm8991_suspend(struct platform_device *pdev, pm_message_t state)
 	if (!codec->card)
 		return 0;
 
-	wm8991_set_bias_level(codec, SND_SOC_BIAS_OFF);
+	//wm8991_set_bias_level(codec, SND_SOC_BIAS_OFF);
+	wm8991_write(codec, wm8991_read_reg_cache(codec, WM8991_DAC_CTRL) | WM8991_DAC_MUTE);
 	return 0;
 }
 
@@ -1408,7 +1413,8 @@ static int wm8991_resume(struct platform_device *pdev)
 		codec->hw_write(codec->control_data, data, 2);
 	}
 
-	wm8991_set_bias_level(codec, SND_SOC_BIAS_STANDBY);
+	//wm8991_set_bias_level(codec, SND_SOC_BIAS_STANDBY);
+	wm8991_write(codec, wm8991_read_reg_cache(codec, WM8991_DAC_CTRL) &~ WM8991_DAC_MUTE);
 	return 0;
 }
 
