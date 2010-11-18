@@ -1320,10 +1320,16 @@ static int wm8991_hw_params(struct snd_pcm_substream *substream,
 
 static int wm8991_mute(struct snd_soc_dai *dai, int mute)
 {
+	struct snd_soc_codec *codec = dai->codec;
+	u16 val;
+
+	val  = snd_soc_read(codec, WM8991_DAC_CTRL) & ~WM8991_DAC_MUTE;
+
 	if (mute)
-		wm8991_write(codec, wm8991_read_reg_cache(codec, WM8991_DAC_CTRL) | WM8991_DAC_MUTE);
+		snd_soc_write(codec, WM8991_DAC_CTRL, val | WM8991_DAC_MUTE);
 	else
-		wm8991_write(codec, wm8991_read_reg_cache(codec, WM8991_DAC_CTRL) &~ WM8991_DAC_MUTE);
+		snd_soc_write(codec, WM8991_DAC_CTRL, val);
+
 	return 0;
 }
 
