@@ -17,6 +17,7 @@
 #include <linux/dmaengine.h>
 #include <linux/usb/ch9.h>
 #include <linux/spinlock.h>
+#include <linux/completion.h>
 
 #include "dwc_otg.h"
 #include "dwc_otg_regs.h"
@@ -165,9 +166,6 @@ typedef struct dwc_otg_core_request_struct
  */
 typedef struct dwc_otg_core_ep_struct
 {
-	/** Our previous and next links in the EP's queue. */
-	struct list_head queue_pointer;
-
 	/** This is set to 1 if this EP exists. */
 	int exists;
 
@@ -204,13 +202,20 @@ typedef struct dwc_otg_core_ep_struct
 
 	/** Which direction the EP is currently working in. */
 	unsigned direction : 2;
+#define DWC_OTG_EP_DIRECTION(hwcfg1, ep) ((~(hwcfg1)) >> (2*(ep)) & 3)
 #define DWC_OTG_EP_DISABLED 0
-#define DWC_OTG_EP_IN 1
-#define DWC_OTG_EP_OUT 2
+#define DWC_OTG_EP_IN 2
+#define DWC_OTG_EP_OUT 1
 #define DWC_OTG_EP_BIDIR 3
 
 	/** The endpoint's spinlock. */
 	spinlock_t lock;
+
+	/** This completion is fired when the NAK bit becomes effective. */
+	struct completion nakeff_completion;
+
+	/** This completion is fired when the EP is disabled. */
+	struct completion disabled_completion;
 
 	/** This is set by the usb_gadget API when the EP is enabled. */
 	struct usb_endpoint_descriptor *descriptor;
@@ -274,6 +279,16 @@ typedef struct dwc_otg_core_struct
 	dwc_otg_core_ep_t endpoints[MAX_EPS_CHANNELS];
 
 	/**
+	 * The start of the EP queue used in Shared FIFO mode.
+	 */
+	dwc_otg_core_ep_t *ep_queue_first;
+
+	/**
+	 * The end of the EP queue used in Shared FIFO mode.
+	 */
+	dwc_otg_core_ep_t *ep_queue_last;
+
+	/**
 	 * These registers are read once and then modified
 	 * to disable unwanted features.
 	 */
@@ -283,20 +298,22 @@ typedef struct dwc_otg_core_struct
 	hwcfg4_data_t hwcfg4;
 
 	/**
-	 * This is the current transfer queue.
-	 * The front of the queue is the EP currently
-	 * transferring data.
-	 * If the queue is empty nothing is happening, j0.
-	 */
-	struct list_head ep_transfer_queue;
-
-	/**
 	 * Determines whether the core is ready for
 	 * transfers. (EG, it isn't whilst we're
 	 * shutting down the core after we receive a
 	 * USB reset.)
 	 */
 	unsigned ready : 1;
+
+	/**
+	 * If > 0, the global out nak bit is set.
+	 */
+	uint32_t global_out_nak_count;
+
+	/**
+	 * If > 0, the global non-periodic in bit is set.
+	 */
+	uint32_t global_in_nak_count;
 
 	/** The core spinlock, for protecting registers. */
 	spinlock_t lock;
@@ -327,6 +344,33 @@ void dwc_otg_core_destroy(dwc_otg_core_t *_core);
  * Soft Resets the core.
  */
 int dwc_otg_core_soft_reset(dwc_otg_core_t *_core);
+
+/**
+ * Set the global non-periodic in nak register, if it's not
+ * already set. It will be cleared after the same amount of 
+ * clear calls have been made as set calls.
+ */
+int dwc_otg_core_set_global_in_nak(dwc_otg_core_t *_core);
+
+/**
+ * Clear the non-periodic global out nak register.
+ */
+int dwc_otg_core_clear_global_in_nak(dwc_otg_core_t *_core);
+
+/**
+ * Set the global out nak register.
+ */
+int dwc_otg_core_set_global_out_nak(dwc_otg_core_t *_core);
+
+/**
+ * Clear the global out nak register.
+ */
+int dwc_otg_core_clear_global_out_nak(dwc_otg_core_t *_core);
+
+/**
+ * Flush one of the core's TX fifos.
+ */
+int dwc_otg_core_flush_tx_fifo(dwc_otg_core_t *_core, int _fnum);
 
 /**
  * dwc_otg_core_start
@@ -378,6 +422,11 @@ int dwc_otg_core_enable_ep(dwc_otg_core_t *_core, dwc_otg_core_ep_t *_ep, struct
  * Disable an endpoint.
  */
 int dwc_otg_core_disable_ep(dwc_otg_core_t *_core, dwc_otg_core_ep_t *_ep);
+
+/**
+ * Cancel the current request on the endpoint, and reset it to a known state.
+ */
+int dwc_otg_core_cancel_ep(dwc_otg_core_t *_core, dwc_otg_core_ep_t *_ep);
 
 /**
  * Stall an endpoint.

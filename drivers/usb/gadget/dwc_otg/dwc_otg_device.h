@@ -11,6 +11,7 @@
 #ifndef  __DWC_OTG_DEVICE_H__
 #define  __DWC_OTG_DEVICE_H__
 
+#include <linux/workqueue.h>
 #include "dwc_otg_core.h"
 
 /**
@@ -33,6 +34,15 @@ typedef struct dwc_otg_device_struct
 
 	/** Whether remote wakeup is enabled. */
 	unsigned remote_wakeup : 1;
+
+	/** This work is used to deal with a usb reset. */
+	struct work_struct reset_work;
+
+	/** This work is used to deal with a usb reset. */
+	struct work_struct suspend_work;
+
+	/** This work is used to deal with being disconnected. */
+	struct work_struct disconnect_work;
 
 } dwc_otg_device_t;
 

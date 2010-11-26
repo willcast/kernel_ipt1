@@ -12,6 +12,7 @@
  */
 
 #include "dwc_otg_gadget.h"
+#include "dwc_otg_hw.h"
 
 #include <linux/errno.h>
 
@@ -52,7 +53,7 @@ static struct usb_ep_ops dwc_otg_ep_ops = {
  * hardware.
  */
 static struct usb_gadget_ops dwc_otg_gadget_ops = {
-	// TODO: Uh, fill this in? At least a little...? -- Ricky26
+	.pullup = &dwc_otg_gadget_pullup,
 };
 
 /**
@@ -65,11 +66,11 @@ struct usb_gadget dwc_otg_gadget = {
 	.name = DWC_OTG_DRIVER_NAME,
 
 	.is_dualspeed = 1,
-	.is_otg = 0, //1,
-	//.is_a_peripheral = 1,
+	.is_otg = 1,
+	.is_a_peripheral = 1,
 
-	//.a_hnp_support = 1,
-	//.b_hnp_enable = 1,
+	.a_hnp_support = 1,
+	.b_hnp_enable = 1,
 	// TODO: Fill these in properly... >_>
 };
 
@@ -84,6 +85,7 @@ int usb_gadget_register_driver(struct usb_gadget_driver* _dri)
 	int ret = 0;
 	int i;
 	dwc_otg_core_t *core;
+	dctl_data_t dctl = { .d32 = 0 };
 
 	if(dwc_otg_gadget_device == NULL)
 	{
@@ -110,7 +112,7 @@ int usb_gadget_register_driver(struct usb_gadget_driver* _dri)
 		}
 
 		// Clear structure
-		memset(g_ep, sizeof(dwc_otg_gadget_ep_t), 0);
+		memset(g_ep, 0, sizeof(dwc_otg_gadget_ep_t));
 
 		INIT_LIST_HEAD(&g_ep->usb_ep.ep_list);
 		g_ep->usb_ep.driver_data = NULL;
@@ -140,6 +142,9 @@ int usb_gadget_register_driver(struct usb_gadget_driver* _dri)
 		DWC_ERROR("Failed to bind gadget driver!\n");
 		return ret;
 	}
+
+	dctl.b.sftdiscon = 1;
+	dwc_otg_modify_reg32(&core->device_registers->dctl, dctl.d32, 0);
 	
 	dwc_otg_gadget_driver = _dri;
 	return ret;
@@ -156,6 +161,10 @@ int usb_gadget_unregister_driver(struct usb_gadget_driver* _dri)
 	dwc_otg_gadget_ep_t *ep0 = dwc_otg_gadget_get_ep(dwc_otg_gadget.ep0);
 	struct list_head *list_prev = &dwc_otg_gadget.ep_list;
 	struct list_head *list_ptr = list_prev->next;
+	dctl_data_t dctl = { .d32 = 0 };
+
+	dctl.b.sftdiscon = 1;
+	dwc_otg_modify_reg32(&dwc_otg_gadget_device->core->device_registers->dctl, 0, dctl.d32);
 
 	dwc_otg_gadget_driver = NULL;
 
@@ -242,11 +251,12 @@ struct usb_request *dwc_otg_gadget_alloc_request(struct usb_ep *_ep, gfp_t _gfp)
 	DWC_VERBOSE("%s(%p, %d) sz=%d\n", __func__, _ep, _gfp, sizeof(dwc_otg_gadget_request_t));
 
 	// Clear the structure
-	memset(req, sizeof(dwc_otg_gadget_request_t), 0);
+	memset(req, 0, sizeof(dwc_otg_gadget_request_t));
 
 	req->usb_ep = _ep;
-	req->usb_request.dma = 0;
-	req->usb_request.zero = 0;
+	req->free = 1;
+	//req->usb_request.dma = 0;
+	//req->usb_request.zero = 0;
 
 	return &req->usb_request;
 }
@@ -277,10 +287,12 @@ int dwc_otg_gadget_queue_request(struct usb_ep *_ep, struct usb_request *_req, g
 {
 	dwc_otg_gadget_request_t *req = dwc_otg_gadget_get_request(_req);
 	dwc_otg_gadget_ep_t *ep = dwc_otg_gadget_get_ep(_ep);
-	dwc_otg_core_request_t *cReq = kzalloc(sizeof(dwc_otg_core_request_t), _gfp);
 
 	// TODO: Use internal request rather than creating a new one!
-	memset(cReq, sizeof(dwc_otg_core_request_t), 0); // Clear Structure
+	dwc_otg_core_request_t *cReq = kzalloc(sizeof(dwc_otg_core_request_t), _gfp);
+	//dwc_otg_core_request_t *cReq = &req->dwc_request;
+
+	memset(cReq, 0, sizeof(dwc_otg_core_request_t)); // Clear Structure
 
 	cReq->dont_free = 1;
 	cReq->request_type = DWC_EP_TYPE_CONTROL;
@@ -327,7 +339,11 @@ int dwc_otg_gadget_queue_request(struct usb_ep *_ep, struct usb_request *_req, g
 		req->free_dma = 0;
 	}
 	else
+	{
+		cReq->dma_address = 0;
+		cReq->dma_buffer = 0;
 		req->free_dma = 1;
+	}
 
 	cReq->completed_handler = &dwc_otg_gadget_complete;
 	dwc_otg_core_enqueue_request(dwc_otg_gadget_device->core, ep->ep, cReq);
@@ -392,6 +408,30 @@ void dwc_otg_gadget_fifo_flush(struct usb_ep *_ep)
 }
 
 /**
+ * This function can disconnect, or reconnect the host
+ * and the device.
+ */
+int dwc_otg_gadget_pullup(struct usb_gadget *_gad, int _on)
+{
+	// TODO: Make soft disconnection something done on the device side,
+	// rather than the gadget-side -- Ricky26
+	/*if(dwc_otg_gadget_device)
+	{
+		dctl_data_t dctl = { .d32 = 0 };
+		dctl.b.sftdiscon = 1;
+		if(_on)
+			dwc_otg_modify_reg32(&dwc_otg_gadget_device->core->device_registers->dctl, dctl.d32, 0);
+		else
+		{
+			dwc_otg_modify_reg32(&dwc_otg_gadget_device->core->device_registers->dctl, 0, dctl.d32);
+			dwc_otg_gadget.speed = USB_SPEED_UNKNOWN;
+		}
+	}*/
+
+	return 0;
+}
+
+/**
  * This is the callback used as a bridge to the
  * usb_gadget callback.
  */
@@ -400,6 +440,7 @@ void dwc_otg_gadget_complete(dwc_otg_core_request_t *_req)
 	dwc_otg_gadget_request_t *req = (dwc_otg_gadget_request_t*)_req->data; //container_of(_req, dwc_otg_gadget_request_t, dwc_request);
 
 	DWC_VERBOSE("%s(%p) len=%d, ep=%s, cancel=%d\n", __func__, _req, _req->length, _req->ep->name, _req->cancelled);
+	DWC_DEBUG("%s(%p) len=%d, ep=%s, cancel=%d\n", __func__, _req, _req->length, _req->ep->name, _req->cancelled);
 
 	if(req->free_dma)
 	{
@@ -413,7 +454,8 @@ void dwc_otg_gadget_complete(dwc_otg_core_request_t *_req)
 	}
 
 	req->usb_request.actual = (_req->length > 0) ? _req->length : 0;
-	req->usb_request.status = (_req->cancelled == 0) ? 0 : -1;
+	req->usb_request.status = (_req->cancelled == 0) ? 0 : -ESHUTDOWN;
+	DWC_DEBUG("%s(%p) status=%d\n", __func__, _req, req->usb_request.status);
 	if(req->usb_request.complete)
 		req->usb_request.complete(req->usb_ep, &req->usb_request);
 

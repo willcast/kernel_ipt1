@@ -175,6 +175,12 @@ int dwc_otg_gadget_fifo_status(struct usb_ep *_ep);
 void dwc_otg_gadget_fifo_flush(struct usb_ep *_ep);
 
 /**
+ * This function can disconnect, or reconnect the host
+ * and the device.
+ */
+int dwc_otg_gadget_pullup(struct usb_gadget *_gad, int _on);
+
+/**
  * This is the callback used as a bridge to the
  * usb_gadget callback.
  */
