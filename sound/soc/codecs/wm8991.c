@@ -1336,6 +1336,113 @@ static int wm8991_mute(struct snd_soc_dai *dai, int mute)
 static int wm8991_set_bias_level(struct snd_soc_codec *codec,
 	enum snd_soc_bias_level level)
 {
+	u16 val;
+
+	switch (level) {
+	case SND_SOC_BIAS_ON:
+		break;
+
+	case SND_SOC_BIAS_PREPARE:
+		/* VMID=2*50k */
+		val = snd_soc_read(codec, WM8991_POWER_MANAGEMENT_1) &
+			~WM8991_VMID_MODE_MASK;
+		snd_soc_write(codec, WM8991_POWER_MANAGEMENT_1, val | 0x2);
+		break;
+
+	case SND_SOC_BIAS_STANDBY:
+		if (codec->bias_level == SND_SOC_BIAS_OFF) {
+			/* Enable all output discharge bits */
+			snd_soc_write(codec, WM8991_ANTIPOP1, WM8991_DIS_LLINE |
+				WM8991_DIS_RLINE | WM8991_DIS_OUT3 |
+				WM8991_DIS_OUT4 | WM8991_DIS_LOUT |
+				WM8991_DIS_ROUT);
+
+			/* Enable POBCTRL, SOFT_ST, VMIDTOG and BUFDCOPEN */
+			snd_soc_write(codec, WM8991_ANTIPOP2, WM8991_SOFTST |
+				     WM8991_BUFDCOPEN | WM8991_POBCTRL |
+				     WM8991_VMIDTOG);
+
+			/* Delay to allow output caps to discharge */
+			msleep(msecs_to_jiffies(300));
+
+			/* Disable VMIDTOG */
+			snd_soc_write(codec, WM8991_ANTIPOP2, WM8991_SOFTST |
+				     WM8991_BUFDCOPEN | WM8991_POBCTRL);
+
+			/* disable all output discharge bits */
+			snd_soc_write(codec, WM8991_ANTIPOP1, 0);
+
+			/* Enable outputs */
+			snd_soc_write(codec, WM8991_POWER_MANAGEMENT_1, 0x1b00);
+
+			msleep(msecs_to_jiffies(50));
+
+			/* Enable VMID at 2x50k */
+			snd_soc_write(codec, WM8991_POWER_MANAGEMENT_1, 0x1f02);
+
+			msleep(msecs_to_jiffies(100));
+
+			/* Enable VREF */
+			snd_soc_write(codec, WM8991_POWER_MANAGEMENT_1, 0x1f03);
+
+			msleep(msecs_to_jiffies(600));
+
+			/* Enable BUFIOEN */
+			snd_soc_write(codec, WM8991_ANTIPOP2, WM8991_SOFTST |
+				     WM8991_BUFDCOPEN | WM8991_POBCTRL |
+				     WM8991_BUFIOEN);
+
+			/* Disable outputs */
+			snd_soc_write(codec, WM8991_POWER_MANAGEMENT_1, 0x3);
+
+			/* disable POBCTRL, SOFT_ST and BUFDCOPEN */
+			snd_soc_write(codec, WM8991_ANTIPOP2, WM8991_BUFIOEN);
+
+		}
+
+		/* VMID=2*250k */
+		val = snd_soc_read(codec, WM8991_POWER_MANAGEMENT_1) &
+			~WM8991_VMID_MODE_MASK;
+		snd_soc_write(codec, WM8991_POWER_MANAGEMENT_1, val | 0x4);
+		break;
+
+	case SND_SOC_BIAS_OFF:
+		/* Enable POBCTRL and SOFT_ST */
+		snd_soc_write(codec, WM8991_ANTIPOP2, WM8991_SOFTST |
+			WM8991_POBCTRL | WM8991_BUFIOEN);
+
+		/* Enable POBCTRL, SOFT_ST and BUFDCOPEN */
+		snd_soc_write(codec, WM8991_ANTIPOP2, WM8991_SOFTST |
+			WM8991_BUFDCOPEN | WM8991_POBCTRL |
+			WM8991_BUFIOEN);
+
+		/* mute DAC */
+		val = snd_soc_read(codec, WM8991_DAC_CTRL);
+		snd_soc_write(codec, WM8991_DAC_CTRL, val | WM8991_DAC_MUTE);
+
+		/* Enable any disabled outputs */
+		snd_soc_write(codec, WM8991_POWER_MANAGEMENT_1, 0x1f03);
+
+		/* Disable VMID */
+		snd_soc_write(codec, WM8991_POWER_MANAGEMENT_1, 0x1f01);
+
+		msleep(msecs_to_jiffies(300));
+
+		/* Enable all output discharge bits */
+		snd_soc_write(codec, WM8991_ANTIPOP1, WM8991_DIS_LLINE |
+			WM8991_DIS_RLINE | WM8991_DIS_OUT3 |
+			WM8991_DIS_OUT4 | WM8991_DIS_LOUT |
+			WM8991_DIS_ROUT);
+
+		/* Disable VREF */
+		snd_soc_write(codec, WM8991_POWER_MANAGEMENT_1, 0x0);
+
+		/* disable POBCTRL, SOFT_ST and BUFDCOPEN */
+		snd_soc_write(codec, WM8991_ANTIPOP2, 0x0);
+		break;
+	}
+
+	codec->bias_level = level;
 	return 0;
 }
 
@@ -1394,6 +1501,7 @@ static int wm8991_suspend(struct platform_device *pdev, pm_message_t state)
 		return 0;
 
 	wm8991_set_bias_level(codec, SND_SOC_BIAS_OFF);
+	
 	return 0;
 }
 
