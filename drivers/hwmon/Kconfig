@@ -408,10 +408,19 @@ config SENSORS_IBMPEX
 	  This driver can also be built as a module.  If so, the module
 	  will be called ibmpex.
 
+config SENSORS_LIS331DL
+	tristate "STMicroeletronics LIS331DL three-axis digital accelerometer"
+	depends on I2C
+	help
+	  If you say yes here you get support for the LIS331DL three-axis digital accelerometer
+	  Device can be configured using sysfs.
+
 config SENSORS_IPHONE_ACCEL
-	tristate "iPhone/iPod Accelerometer"
+	tristate "DEPRECATED iPhone/iPod Accelerometer"
 	select INPUT_POLLDEV
 	depends on (IPHONE_3G || IPHONE_2G || IPODTOUCH_1G) && I2C
+	help
+	  If you say yes here you get support for the LIS331DL three-axis digital accelerometer - DEPRECATED
 
 config SENSORS_IT87
 	tristate "ITE IT87xx and compatibles"
