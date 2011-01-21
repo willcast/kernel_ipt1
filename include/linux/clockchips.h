@@ -73,14 +73,15 @@ enum clock_event_nofitiers {
  * @list:		list head for the management code
  * @mode:		operating mode assigned by the management code
  * @next_event:		local storage for the next event in oneshot mode
+ * @retries:		number of forced programming retries
  */
 struct clock_event_device {
 	const char		*name;
 	unsigned int		features;
-	unsigned long		max_delta_ns;
-	unsigned long		min_delta_ns;
+	u64			max_delta_ns;
+	u64			min_delta_ns;
 	u32			mult;
-	int			shift;
+	u32			shift;
 	int			rating;
 	int			irq;
 	const struct cpumask	*cpumask;
@@ -93,6 +94,7 @@ struct clock_event_device {
 	struct list_head	list;
 	enum clock_event_mode	mode;
 	ktime_t			next_event;
+	unsigned long		retries;
 };
 
 /*
@@ -116,8 +118,8 @@ static inline unsigned long div_sc(unsigned long ticks, unsigned long nsec,
 }
 
 /* Clock event layer functions */
-extern unsigned long clockevent_delta2ns(unsigned long latch,
-					 struct clock_event_device *evt);
+extern u64 clockevent_delta2ns(unsigned long latch,
+			       struct clock_event_device *evt);
 extern void clockevents_register_device(struct clock_event_device *dev);
 
 extern void clockevents_exchange_device(struct clock_event_device *old,
@@ -130,14 +132,11 @@ extern int clockevents_program_event(struct clock_event_device *dev,
 
 extern void clockevents_handle_noop(struct clock_event_device *dev);
 
-extern void
-clocks_calc_mult_shift(u32 *mult, u32 *shift, u32 from, u32 to, u32 minsec);
-
 static inline void
 clockevents_calc_mult_shift(struct clock_event_device *ce, u32 freq, u32 minsec)
 {
 	return clocks_calc_mult_shift(&ce->mult, &ce->shift, NSEC_PER_SEC,
-			freq, minsec);
+				      freq, minsec);
 }
 
 #ifdef CONFIG_GENERIC_CLOCKEVENTS

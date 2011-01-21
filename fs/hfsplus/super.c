@@ -87,7 +87,8 @@ bad_inode:
 	return ERR_PTR(err);
 }
 
-static int hfsplus_write_inode(struct inode *inode, int unused)
+static int hfsplus_write_inode(struct inode *inode,
+		struct writeback_control *wbc)
 {
 	struct hfsplus_vh *vhdr;
 	int ret = 0;
@@ -283,18 +284,6 @@ static int hfsplus_remount(struct super_block *sb, int *flags, char *data)
 			printk(KERN_WARNING "hfs: filesystem is marked journaled, leaving read-only.\n");
 			sb->s_flags |= MS_RDONLY;
 			*flags |= MS_RDONLY;
-		}
-	} else {
-		sync_filesystem(sb);
-		hfsplus_sync_fs(sb, 1);
-		if (!(sb->s_flags & MS_RDONLY) && HFSPLUS_SB(sb).s_vhdr) {
-			struct hfsplus_vh *vhdr = HFSPLUS_SB(sb).s_vhdr;
-
-			vhdr->modify_date = hfsp_now2mt();
-			vhdr->attributes |= cpu_to_be32(HFSPLUS_VOL_UNMNT);
-			vhdr->attributes &= cpu_to_be32(~HFSPLUS_VOL_INCNSTNT);
-			mark_buffer_dirty(HFSPLUS_SB(sb).s_vhbh);
-			sync_dirty_buffer(HFSPLUS_SB(sb).s_vhbh);
 		}
 	}
 	return 0;

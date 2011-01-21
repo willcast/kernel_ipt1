@@ -22,6 +22,7 @@
 #include <linux/seq_file.h>
 #include <linux/delay.h>
 #include <linux/io.h>
+#include <linux/slab.h>
 
 #include <linux/usb/ch9.h>
 #include <linux/usb/gadget.h>
@@ -30,10 +31,8 @@
 
 #include <plat/regs-usb-hsotg-phy.h>
 #include <plat/regs-usb-hsotg.h>
-#include <plat/regs-sys.h>
+#include <mach/regs-sys.h>
 #include <plat/udc-hs.h>
-
-#include <mach/iphone-clock.h>
 
 #define DMA_ADDR_INVALID (~((dma_addr_t)0))
 
@@ -119,8 +118,7 @@ struct s3c_hsotg_ep {
 	char			name[10];
 };
 
-//#define S3C_HSOTG_EPS	(8+1)	/* limit to 9 for the moment */
-#define S3C_HSOTG_EPS	(6)
+#define S3C_HSOTG_EPS	(8+1)	/* limit to 9 for the moment */
 
 /**
  * struct s3c_hsotg - driver state.
@@ -299,18 +297,70 @@ static void s3c_hsotg_ctrl_epint(struct s3c_hsotg *hsotg,
  */
 static void s3c_hsotg_init_fifo(struct s3c_hsotg *hsotg)
 {
-	// the ryu 2.6.24 release ahs
+	unsigned int ep;
+	unsigned int addr;
+	unsigned int size;
+	int timeout;
+	u32 val;
+
+	/* the ryu 2.6.24 release ahs
 	   writel(0x1C0, hsotg->regs + S3C_GRXFSIZ);
 	   writel(S3C_GNPTXFSIZ_NPTxFStAddr(0x200) |
 		S3C_GNPTXFSIZ_NPTxFDep(0x1C0),
 		hsotg->regs + S3C_GNPTXFSIZ);
+	*/
 
 	/* set FIFO sizes to 2048/0x1C0 */
 
-/*	writel(2048, hsotg->regs + S3C_GRXFSIZ);
+	writel(2048, hsotg->regs + S3C_GRXFSIZ);
 	writel(S3C_GNPTXFSIZ_NPTxFStAddr(2048) |
 	       S3C_GNPTXFSIZ_NPTxFDep(0x1C0),
-	       hsotg->regs + S3C_GNPTXFSIZ);*/
+	       hsotg->regs + S3C_GNPTXFSIZ);
+
+	/* arange all the rest of the TX FIFOs, as some versions of this
+	 * block have overlapping default addresses. This also ensures
+	 * that if the settings have been changed, then they are set to
+	 * known values. */
+
+	/* start at the end of the GNPTXFSIZ, rounded up */
+	addr = 2048 + 1024;
+	size = 768;
+
+	/* currently we allocate TX FIFOs for all possible endpoints,
+	 * and assume that they are all the same size. */
+
+	for (ep = 0; ep <= 15; ep++) {
+		val = addr;
+		val |= size << S3C_DPTXFSIZn_DPTxFSize_SHIFT;
+		addr += size;
+
+		writel(val, hsotg->regs + S3C_DPTXFSIZn(ep));
+	}
+
+	/* according to p428 of the design guide, we need to ensure that
+	 * all fifos are flushed before continuing */
+
+	writel(S3C_GRSTCTL_TxFNum(0x10) | S3C_GRSTCTL_TxFFlsh |
+	       S3C_GRSTCTL_RxFFlsh, hsotg->regs + S3C_GRSTCTL);
+
+	/* wait until the fifos are both flushed */
+	timeout = 100;
+	while (1) {
+		val = readl(hsotg->regs + S3C_GRSTCTL);
+
+		if ((val & (S3C_GRSTCTL_TxFFlsh | S3C_GRSTCTL_RxFFlsh)) == 0)
+			break;
+
+		if (--timeout == 0) {
+			dev_err(hsotg->dev,
+				"%s: timeout flushing fifos (GRSTCTL=%08x)\n",
+				__func__, val);
+		}
+
+		udelay(1);
+	}
+
+	dev_dbg(hsotg->dev, "FIFOs reset, timeout at %d\n", timeout);
 }
 
 /**
@@ -319,7 +369,8 @@ static void s3c_hsotg_init_fifo(struct s3c_hsotg *hsotg)
  *
  * Allocate a new USB request structure appropriate for the specified endpoint
  */
-struct usb_request *s3c_hsotg_ep_alloc_request(struct usb_ep *ep, gfp_t flags)
+static struct usb_request *s3c_hsotg_ep_alloc_request(struct usb_ep *ep,
+						      gfp_t flags)
 {
 	struct s3c_hsotg_req *req;
 
@@ -375,7 +426,7 @@ static void s3c_hsotg_unmap_dma(struct s3c_hsotg *hsotg,
 		req->dma = DMA_ADDR_INVALID;
 		hs_req->mapped = 0;
 	} else {
-		dma_sync_single(hsotg->dev, req->dma, req->length, dir);
+		dma_sync_single_for_cpu(hsotg->dev, req->dma, req->length, dir);
 	}
 }
 
@@ -471,6 +522,17 @@ static int s3c_hsotg_write_fifo(struct s3c_hsotg *hsotg,
 	if (to_write > can_write) {
 		to_write = can_write;
 		pkt_round = to_write % hs_ep->ep.maxpacket;
+
+		/* Not sure, but we probably shouldn't be writing partial
+		 * packets into the FIFO, so round the write down to an
+		 * exact number of packets.
+		 *
+		 * Note, we do not currently check to see if we can ever
+		 * write a full packet or not to the FIFO.
+		 */
+
+		if (pkt_round)
+			to_write -= pkt_round;
 
 		/* enable correct FIFO interrupt to alert us when there
 		 * is more room left. */
@@ -746,7 +808,7 @@ static int s3c_hsotg_map_dma(struct s3c_hsotg *hsotg,
 		hs_req->mapped = 1;
 		req->dma = dma;
 	} else {
-		dma_sync_single(hsotg->dev, req->dma, req->length, dir);
+		dma_sync_single_for_cpu(hsotg->dev, req->dma, req->length, dir);
 		hs_req->mapped = 0;
 	}
 
@@ -990,8 +1052,6 @@ static int s3c_hsotg_process_req_feature(struct s3c_hsotg *hsotg,
 	return 1;
 }
 
-static void s3c_hsotg_enqueue_setup(struct s3c_hsotg *hsotg);
-
 /**
  * s3c_hsotg_process_control - process a control request
  * @hsotg: The device state
@@ -1090,9 +1150,10 @@ static void s3c_hsotg_process_control(struct s3c_hsotg *hsotg,
 
 		/* don't belive we need to anything more to get the EP
 		 * to reply with a STALL packet */
-		s3c_hsotg_enqueue_setup(hsotg);
 	}
 }
+
+static void s3c_hsotg_enqueue_setup(struct s3c_hsotg *hsotg);
 
 /**
  * s3c_hsotg_complete_setup - completion of a setup transfer
@@ -1452,7 +1513,7 @@ static u32 s3c_hsotg_read_frameno(struct s3c_hsotg *hsotg)
  * as the actual data should be sent to the memory directly and we turn
  * on the completion interrupts to get notifications of transfer completion.
  */
-void s3c_hsotg_handle_rx(struct s3c_hsotg *hsotg)
+static void s3c_hsotg_handle_rx(struct s3c_hsotg *hsotg)
 {
 	u32 grxstsr = readl(hsotg->regs + S3C_GRXSTSP);
 	u32 epnum, status, size;
@@ -1679,9 +1740,9 @@ static void s3c_hsotg_epint(struct s3c_hsotg *hsotg, unsigned int idx,
 	u32 epctl_reg = dir_in ? S3C_DIEPCTL(idx) : S3C_DOEPCTL(idx);
 	u32 epsiz_reg = dir_in ? S3C_DIEPTSIZ(idx) : S3C_DOEPTSIZ(idx);
 	u32 ints;
+	u32 clear = 0;
 
 	ints = readl(hsotg->regs + epint_reg);
-	writel(ints, hsotg->regs + epint_reg);
 
 	dev_dbg(hsotg->dev, "%s: ep%d(%s) DxEPINT=0x%08x\n",
 		__func__, idx, dir_in ? "in" : "out", ints);
@@ -1705,14 +1766,18 @@ static void s3c_hsotg_epint(struct s3c_hsotg *hsotg, unsigned int idx,
 
 			s3c_hsotg_handle_outdone(hsotg, idx, false);
 		}
+
+		clear |= S3C_DxEPINT_XferCompl;
 	}
 
 	if (ints & S3C_DxEPINT_EPDisbld) {
 		dev_dbg(hsotg->dev, "%s: EPDisbld\n", __func__);
+		clear |= S3C_DxEPINT_EPDisbld;
 	}
 
 	if (ints & S3C_DxEPINT_AHBErr) {
 		dev_dbg(hsotg->dev, "%s: AHBErr\n", __func__);
+		clear |= S3C_DxEPINT_AHBErr;
 	}
 
 	if (ints & S3C_DxEPINT_Setup) {  /* Setup or Timeout */
@@ -1729,10 +1794,13 @@ static void s3c_hsotg_epint(struct s3c_hsotg *hsotg, unsigned int idx,
 			else
 				s3c_hsotg_handle_outdone(hsotg, 0, true);
 		}
+
+		clear |= S3C_DxEPINT_Setup;
 	}
 
 	if (ints & S3C_DxEPINT_Back2BackSetup) {
 		dev_dbg(hsotg->dev, "%s: B2BSetup/INEPNakEff\n", __func__);
+		clear |= S3C_DxEPINT_Back2BackSetup;
 	}
 
 	if (dir_in) {
@@ -1741,14 +1809,18 @@ static void s3c_hsotg_epint(struct s3c_hsotg *hsotg, unsigned int idx,
 		if (ints & S3C_DIEPMSK_INTknTXFEmpMsk) {
 			dev_dbg(hsotg->dev, "%s: ep%d: INTknTXFEmpMsk\n",
 				__func__, idx);
+			clear |= S3C_DIEPMSK_INTknTXFEmpMsk;
 		}
 
 		/* this probably means something bad is happening */
 		if (ints & S3C_DIEPMSK_INTknEPMisMsk) {
 			dev_warn(hsotg->dev, "%s: ep%d: INTknEP\n",
 				 __func__, idx);
+			clear |= S3C_DIEPMSK_INTknEPMisMsk;
 		}
 	}
+
+	writel(clear, hsotg->regs + epint_reg);
 }
 
 /**
@@ -2100,10 +2172,7 @@ irq_retry:
 	/* if we've had fifo events, we should try and go around the
 	 * loop again to see if there's any point in returning yet. */
 
-	gintsts = readl(hsotg->regs + S3C_GINTSTS);
-	gintmsk = readl(hsotg->regs + S3C_GINTMSK);
-
-	if (gintsts & gintmsk && --retry_count > 0)
+	if (gintsts & IRQ_RETRY_MASK && --retry_count > 0)
 			goto irq_retry;
 
 	return IRQ_HANDLED;
@@ -2127,6 +2196,7 @@ static int s3c_hsotg_ep_enable(struct usb_ep *ep,
 	u32 epctrl;
 	u32 mps;
 	int dir_in;
+	int ret = 0;
 
 	dev_dbg(hsotg->dev,
 		"%s: ep %s: a 0x%02x, attr 0x%02x, mps 0x%04x, intr %d\n",
@@ -2178,7 +2248,8 @@ static int s3c_hsotg_ep_enable(struct usb_ep *ep,
 	switch (desc->bmAttributes & USB_ENDPOINT_XFERTYPE_MASK) {
 	case USB_ENDPOINT_XFER_ISOC:
 		dev_err(hsotg->dev, "no current ISOC support\n");
-		return -EINVAL;
+		ret = -EINVAL;
+		goto out;
 
 	case USB_ENDPOINT_XFER_BULK:
 		epctrl |= S3C_DxEPCTL_EPType_Bulk;
@@ -2217,8 +2288,9 @@ static int s3c_hsotg_ep_enable(struct usb_ep *ep,
 	/* enable the endpoint interrupt */
 	s3c_hsotg_ctrl_epint(hsotg, index, dir_in, 1);
 
+out:
 	spin_unlock_irqrestore(&hs_ep->lock, flags);
-	return 0;
+	return ret;
 }
 
 static int s3c_hsotg_ep_disable(struct usb_ep *ep)
@@ -2553,6 +2625,9 @@ int usb_gadget_register_driver(struct usb_gadget_driver *driver)
 	writel(S3C_DCTL_CGOUTNak | S3C_DCTL_CGNPInNAK,
 	       hsotg->regs + S3C_DCTL);
 
+	/* must be at-least 3ms to allow bus to see disconnect */
+	msleep(3);
+
 	/* remove the soft-disconnect and let's go */
 	__bic32(hsotg->regs + S3C_DCTL, S3C_DCTL_SftDiscon);
 
@@ -2566,6 +2641,7 @@ err:
 	hsotg->gadget.dev.driver = NULL;
 	return ret;
 }
+EXPORT_SYMBOL(usb_gadget_register_driver);
 
 int usb_gadget_unregister_driver(struct usb_gadget_driver *driver)
 {
@@ -2708,6 +2784,9 @@ static void s3c_hsotg_init(struct s3c_hsotg *hsotg)
 
 	writel(0, hsotg->regs + S3C_DAINTMSK);
 
+	/* Be in disconnected state until gadget is registered */
+	__orr32(hsotg->regs + S3C_DCTL, S3C_DCTL_SftDiscon);
+
 	if (0) {
 		/* post global nak until we're ready */
 		writel(S3C_DCTL_SGNPInNAK | S3C_DCTL_SGOUTNak,
@@ -2732,7 +2811,6 @@ static void s3c_hsotg_init(struct s3c_hsotg *hsotg)
 
 static void s3c_hsotg_dump(struct s3c_hsotg *hsotg)
 {
-#ifdef IPHONE_DEBUG
 	struct device *dev = hsotg->dev;
 	void __iomem *regs = hsotg->regs;
 	u32 val;
@@ -2775,7 +2853,6 @@ static void s3c_hsotg_dump(struct s3c_hsotg *hsotg)
 
 	dev_info(dev, "DVBUSDIS=0x%08x, DVBUSPULSE=%08x\n",
 		 readl(regs + S3C_DVBUSDIS), readl(regs + S3C_DVBUSPULSE));
-#endif
 }
 
 
@@ -3064,19 +3141,7 @@ static void __devexit s3c_hsotg_delete_debug(struct s3c_hsotg *hsotg)
  */
 static void s3c_hsotg_gate(struct platform_device *pdev, bool on)
 {
-	if(on)
-	{
-		iphone_power_ctrl(IPHONE_USB_POWER, on);
-		mdelay(10);
-		iphone_clock_gate_switch(IPHONE_USB_CLOCK, on);
-		iphone_clock_gate_switch(IPHONE_USBPHY_CLOCK, on);
-	} else
-	{
-		iphone_clock_gate_switch(IPHONE_USB_CLOCK, on);
-		iphone_clock_gate_switch(IPHONE_USBPHY_CLOCK, on);
-		iphone_power_ctrl(IPHONE_USB_POWER, on);
-	}
-/*	unsigned long flags;
+	unsigned long flags;
 	u32 others;
 
 	local_irq_save(flags);
@@ -3088,10 +3153,10 @@ static void s3c_hsotg_gate(struct platform_device *pdev, bool on)
 		others &= ~S3C64XX_OTHERS_USBMASK;
 	__raw_writel(others, S3C64XX_OTHERS);
 
-	local_irq_restore(flags);*/
+	local_irq_restore(flags);
 }
 
-struct s3c_hsotg_plat s3c_hsotg_default_pdata;
+static struct s3c_hsotg_plat s3c_hsotg_default_pdata;
 
 static int __devinit s3c_hsotg_probe(struct platform_device *pdev)
 {
@@ -3148,6 +3213,12 @@ static int __devinit s3c_hsotg_probe(struct platform_device *pdev)
 
 	hsotg->irq = ret;
 
+	ret = request_irq(ret, s3c_hsotg_irq, 0, dev_name(dev), hsotg);
+	if (ret < 0) {
+		dev_err(dev, "cannot claim IRQ\n");
+		goto err_regs;
+	}
+
 	dev_info(dev, "regs %p, irq %d\n", hsotg->regs, hsotg->irq);
 
 	device_initialize(&hsotg->gadget.dev);
@@ -3190,12 +3261,6 @@ static int __devinit s3c_hsotg_probe(struct platform_device *pdev)
 	s3c_hsotg_create_debug(hsotg);
 
 	s3c_hsotg_dump(hsotg);
-
-	ret = request_irq(ret, s3c_hsotg_irq, 0, dev_name(dev), hsotg);
-	if (ret < 0) {
-		dev_err(dev, "cannot claim IRQ\n");
-		goto err_regs;
-	}
 
 	our_hsotg = hsotg;
 	return 0;

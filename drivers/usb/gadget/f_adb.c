@@ -25,7 +25,7 @@
 #include <linux/wait.h>
 #include <linux/err.h>
 #include <linux/interrupt.h>
-#include <linux/sched.h>
+
 #include <linux/types.h>
 #include <linux/device.h>
 #include <linux/miscdevice.h>
@@ -330,7 +330,6 @@ requeue_req:
 
 		DBG(cdev, "rx %p %d\n", req, req->actual);
 		xfer = (req->actual < count) ? req->actual : count;
-		r = xfer; // Isn't this supposed to be done? -- Ricky26
 		if (copy_to_user(buf, req->buf, xfer))
 			r = -EFAULT;
 	} else

@@ -51,6 +51,7 @@ asmlinkage long sys_mmap2(unsigned long addr, unsigned long len,
 	pgoff >>= PAGE_SHIFT - 12;
 
 	return sys_mmap_pgoff(addr, len, prot, flags, fd, pgoff);
+<<<<<<< HEAD
 }
 
 /*
@@ -155,6 +156,8 @@ asmlinkage int sys_ipc(uint call, int first, int second,
 		}
 
 	return -EINVAL;
+=======
+>>>>>>> aa3041585df24b65bd800e3ce6aec5678d87f8e8
 }
 
 /* sys_cacheflush -- flush (part of) the processor cache.  */
@@ -196,15 +199,4 @@ asmlinkage int sys_cacheflush(unsigned long addr, unsigned long len, int op)
 
 	up_read(&current->mm->mmap_sem);
 	return 0;
-}
-
-asmlinkage int sys_uname(struct old_utsname __user *name)
-{
-	int err;
-	if (!name)
-		return -EFAULT;
-	down_read(&uts_sem);
-	err = copy_to_user(name, utsname(), sizeof(*name));
-	up_read(&uts_sem);
-	return err?-EFAULT:0;
 }

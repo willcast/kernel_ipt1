@@ -16,11 +16,12 @@
 
 #include <linux/module.h>
 #include <linux/platform_device.h>
+#include <linux/slab.h>
 #include <linux/hrtimer.h>
 #include <linux/err.h>
 #include <linux/gpio.h>
 
-#include <linux/timed_output.h>
+#include "timed_output.h"
 #include "timed_gpio.h"
 
 

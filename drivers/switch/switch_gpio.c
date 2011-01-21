@@ -20,6 +20,7 @@
 #include <linux/init.h>
 #include <linux/interrupt.h>
 #include <linux/platform_device.h>
+#include <linux/slab.h>
 #include <linux/switch.h>
 #include <linux/workqueue.h>
 #include <linux/gpio.h>
@@ -73,7 +74,6 @@ static int gpio_switch_probe(struct platform_device *pdev)
 {
 	struct gpio_switch_platform_data *pdata = pdev->dev.platform_data;
 	struct gpio_switch_data *switch_data;
-	int irq_flags;
 	int ret = 0;
 
 	if (!pdata)
@@ -90,10 +90,6 @@ static int gpio_switch_probe(struct platform_device *pdev)
 	switch_data->state_on = pdata->state_on;
 	switch_data->state_off = pdata->state_off;
 	switch_data->sdev.print_state = switch_gpio_print_state;
-	irq_flags = pdata->irq_flags;
-
-	if(!irq_flags)
-		irq_flags = IRQF_TRIGGER_LOW;
 
     ret = switch_dev_register(&switch_data->sdev);
 	if (ret < 0)
@@ -116,7 +112,7 @@ static int gpio_switch_probe(struct platform_device *pdev)
 	}
 
 	ret = request_irq(switch_data->irq, gpio_irq_handler,
-			  irq_flags, pdev->name, switch_data);
+			  IRQF_TRIGGER_LOW, pdev->name, switch_data);
 	if (ret < 0)
 		goto err_request_irq;
 

@@ -110,16 +110,6 @@ static struct usb_device_descriptor device_desc = {
 static struct list_head _functions = LIST_HEAD_INIT(_functions);
 static int _registered_function_count = 0;
 
-void android_usb_set_connected(int connected)
-{
-	if (_android_dev && _android_dev->cdev && _android_dev->cdev->gadget) {
-		if (connected)
-			usb_gadget_connect(_android_dev->cdev->gadget);
-		else
-			usb_gadget_disconnect(_android_dev->cdev->gadget);
-	}
-}
-
 static struct android_usb_function *get_function(const char *name)
 {
 	struct android_usb_function	*f;
@@ -136,8 +126,6 @@ static void bind_functions(struct android_dev *dev)
 	char **functions = dev->functions;
 	int i;
 
-	printk("android: binding USB functions...\n");
-
 	for (i = 0; i < dev->num_functions; i++) {
 		char *name = *functions++;
 		f = get_function(name);
@@ -146,11 +134,9 @@ static void bind_functions(struct android_dev *dev)
 		else
 			printk(KERN_ERR "function %s not found in bind_functions\n", name);
 	}
-
-	printk("android: functions bound...\n");
 }
 
-static int __init android_bind_config(struct usb_configuration *c)
+static int android_bind_config(struct usb_configuration *c)
 {
 	struct android_dev *dev = _android_dev;
 
@@ -234,7 +220,7 @@ static int get_product_id(struct android_dev *dev)
 	return dev->product_id;
 }
 
-static int __init android_bind(struct usb_composite_dev *cdev)
+static int android_bind(struct usb_composite_dev *cdev)
 {
 	struct android_dev *dev = _android_dev;
 	struct usb_gadget	*gadget = cdev->gadget;
@@ -262,9 +248,6 @@ static int __init android_bind(struct usb_composite_dev *cdev)
 		return id;
 	strings_dev[STRING_SERIAL_IDX].id = id;
 	device_desc.iSerialNumber = id;
-
-	if (gadget->ops->wakeup)
-		android_config_driver.bmAttributes |= USB_CONFIG_ATT_WAKEUP;
 
 	/* register our configuration */
 	ret = usb_add_config(cdev, &android_config_driver);
@@ -314,8 +297,6 @@ void android_register_function(struct android_usb_function *f)
 	list_add_tail(&f->list, &_functions);
 	_registered_function_count++;
 
-	printk("android: %d of %d USB functions loaded.", _registered_function_count, dev->num_functions);
-
 	/* bind our functions if they have all registered
 	 * and the main driver has bound.
 	 */
@@ -349,12 +330,12 @@ void android_enable_function(struct usb_function *f, int enable)
 				dev->cdev->desc.bDeviceClass = USB_CLASS_PER_INTERFACE;
 
 			/* Windows does not support other interfaces when RNDIS is enabled,
-			 * so we disable UMS when RNDIS is on.
+			 * so we disable UMS and MTP when RNDIS is on.
 			 */
 			list_for_each_entry(func, &android_config_driver.functions, list) {
-				if (!strcmp(func->name, "usb_mass_storage")) {
+				if (!strcmp(func->name, "usb_mass_storage")
+					|| !strcmp(func->name, "mtp")) {
 					usb_function_set_enabled(func, !enable);
-					break;
 				}
 			}
 		}
@@ -368,7 +349,7 @@ void android_enable_function(struct usb_function *f, int enable)
 	}
 }
 
-static int __init android_probe(struct platform_device *pdev)
+static int android_probe(struct platform_device *pdev)
 {
 	struct android_usb_platform_data *pdata = pdev->dev.platform_data;
 	struct android_dev *dev = _android_dev;

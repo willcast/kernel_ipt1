@@ -1,6 +1,9 @@
 /*
- * Definitions for the FTDI USB Single Port Serial Converter -
+ * Driver definitions for the FTDI USB Single Port Serial Converter -
  * known as FTDI_SIO (Serial Input/Output application of the chipset)
+ *
+ * For USB vendor/product IDs (VID/PID), please see ftdi_sio_ids.h
+ *
  *
  * The example I have is known as the USC-1000 which is available from
  * http://www.dse.co.nz - cat no XH4214 It looks similar to this:
@@ -17,119 +20,8 @@
  * Bill Ryder - bryder@sgi.com formerly of Silicon Graphics, Inc.- wrote the
  * FTDI_SIO implementation.
  *
- * Philipp Gühring - pg@futureware.at - added the Device ID of the USB relais
- * from Rudolf Gugler
- *
  */
-
-#define FTDI_VID	0x0403	/* Vendor Id */
-#define FTDI_SIO_PID	0x8372	/* Product Id SIO application of 8U100AX  */
-#define FTDI_8U232AM_PID 0x6001 /* Similar device to SIO above */
-#define FTDI_8U232AM_ALT_PID 0x6006 /* FTDI's alternate PID for above */
-#define FTDI_8U2232C_PID 0x6010 /* Dual channel device */
-#define FTDI_232RL_PID  0xFBFA  /* Product ID for FT232RL */
-#define FTDI_4232H_PID 0x6011 /* Quad channel hi-speed device */
-#define FTDI_RELAIS_PID	0xFA10  /* Relais device from Rudolf Gugler */
-#define FTDI_NF_RIC_VID	0x0DCD	/* Vendor Id */
-#define FTDI_NF_RIC_PID	0x0001	/* Product Id */
-#define FTDI_USBX_707_PID 0xF857	/* ADSTech IR Blaster USBX-707 */
-
-/* Larsen and Brusgaard AltiTrack/USBtrack  */
-#define LARSENBRUSGAARD_VID		0x0FD8
-#define LB_ALTITRACK_PID		0x0001
-
-/* www.canusb.com Lawicel CANUSB device */
-#define FTDI_CANUSB_PID 0xFFA8 /* Product Id */
-
-/* AlphaMicro Components AMC-232USB01 device */
-#define FTDI_AMC232_PID 0xFF00 /* Product Id */
-
-/* www.candapter.com Ewert Energy Systems CANdapter device */
-#define FTDI_CANDAPTER_PID 0x9F80 /* Product Id */
-
-/* SCS HF Radio Modems PID's (http://www.scs-ptc.com) */
-/* the VID is the standard ftdi vid (FTDI_VID) */
-#define FTDI_SCS_DEVICE_0_PID 0xD010    /* SCS PTC-IIusb */
-#define FTDI_SCS_DEVICE_1_PID 0xD011    /* SCS Tracker / DSP TNC */
-#define FTDI_SCS_DEVICE_2_PID 0xD012
-#define FTDI_SCS_DEVICE_3_PID 0xD013
-#define FTDI_SCS_DEVICE_4_PID 0xD014
-#define FTDI_SCS_DEVICE_5_PID 0xD015
-#define FTDI_SCS_DEVICE_6_PID 0xD016
-#define FTDI_SCS_DEVICE_7_PID 0xD017
-
-/* ACT Solutions HomePro ZWave interface (http://www.act-solutions.com/HomePro.htm) */
-#define FTDI_ACTZWAVE_PID	0xF2D0
-
-
-/* www.starting-point-systems.com µChameleon device */
-#define FTDI_MICRO_CHAMELEON_PID	0xCAA0	/* Product Id */
-
-/* www.irtrans.de device */
-#define FTDI_IRTRANS_PID 0xFC60 /* Product Id */
-
-
-/* www.thoughttechnology.com/ TT-USB provide with procomp use ftdi_sio */
-#define FTDI_TTUSB_PID 0xFF20 /* Product Id */
-
-/* iPlus device */
-#define FTDI_IPLUS_PID 0xD070 /* Product Id */
-#define FTDI_IPLUS2_PID 0xD071 /* Product Id */
-
-/* DMX4ALL DMX Interfaces */
-#define FTDI_DMX4ALL 0xC850
-
-/* OpenDCC (www.opendcc.de) product id */
-#define FTDI_OPENDCC_PID	0xBFD8
-#define FTDI_OPENDCC_SNIFFER_PID	0xBFD9
-#define FTDI_OPENDCC_THROTTLE_PID	0xBFDA
-#define FTDI_OPENDCC_GATEWAY_PID	0xBFDB
-
-/* Sprog II (Andrew Crosland's SprogII DCC interface) */
-#define FTDI_SPROG_II		0xF0C8
-
-/* www.crystalfontz.com devices - thanx for providing free devices for evaluation ! */
-/* they use the ftdi chipset for the USB interface and the vendor id is the same */
-#define FTDI_XF_632_PID 0xFC08	/* 632: 16x2 Character Display */
-#define FTDI_XF_634_PID 0xFC09	/* 634: 20x4 Character Display */
-#define FTDI_XF_547_PID 0xFC0A	/* 547: Two line Display */
-#define FTDI_XF_633_PID 0xFC0B	/* 633: 16x2 Character Display with Keys */
-#define FTDI_XF_631_PID 0xFC0C	/* 631: 20x2 Character Display */
-#define FTDI_XF_635_PID 0xFC0D	/* 635: 20x4 Character Display */
-#define FTDI_XF_640_PID 0xFC0E	/* 640: Two line Display */
-#define FTDI_XF_642_PID 0xFC0F	/* 642: Two line Display */
-
-/* Video Networks Limited / Homechoice in the UK use an ftdi-based device for their 1Mb */
-/* broadband internet service.  The following PID is exhibited by the usb device supplied */
-/* (the VID is the standard ftdi vid (FTDI_VID) */
-#define FTDI_VNHCPCUSB_D_PID 0xfe38 /* Product Id */
-
-/*
- * PCDJ use ftdi based dj-controllers.  The following PID is for their DAC-2 device
- * http://www.pcdjhardware.com/DAC2.asp (PID sent by Wouter Paesen)
- * (the VID is the standard ftdi vid (FTDI_VID) */
-#define FTDI_PCDJ_DAC2_PID 0xFA88
-
-/*
- * The following are the values for the Matrix Orbital LCD displays,
- * which are the FT232BM ( similar to the 8U232AM )
- */
-#define FTDI_MTXORB_0_PID      0xFA00  /* Matrix Orbital Product Id */
-#define FTDI_MTXORB_1_PID      0xFA01  /* Matrix Orbital Product Id */
-#define FTDI_MTXORB_2_PID      0xFA02  /* Matrix Orbital Product Id */
-#define FTDI_MTXORB_3_PID      0xFA03  /* Matrix Orbital Product Id */
-#define FTDI_MTXORB_4_PID      0xFA04  /* Matrix Orbital Product Id */
-#define FTDI_MTXORB_5_PID      0xFA05  /* Matrix Orbital Product Id */
-#define FTDI_MTXORB_6_PID      0xFA06  /* Matrix Orbital Product Id */
-
-/* OOCDlink by Joern Kaipf <joernk@web.de>
- * (http://www.joernonline.de/dw/doku.php?id=start&idx=projects:oocdlink) */
-#define FTDI_OOCDLINK_PID	0xbaf8	/* Amontec JTAGkey */
-
-/*
- * The following are the values for the Matrix Orbital FTDI Range
- * Anything in this range will use an FT232RL.
- */
+<<<<<<< HEAD
 #define MTXORB_VID			0x1B3D
 #define MTXORB_FTDI_RANGE_0100_PID	0x0100
 #define MTXORB_FTDI_RANGE_0101_PID	0x0101
@@ -891,105 +783,29 @@
 /* Alti-2 products  http://www.alti-2.com */
 #define ALTI2_VID	0x1BC9
 #define ALTI2_N3_PID	0x6001	/* Neptune 3 */
+=======
+>>>>>>> aa3041585df24b65bd800e3ce6aec5678d87f8e8
 
 /* Commands */
-#define FTDI_SIO_RESET 		0 /* Reset the port */
-#define FTDI_SIO_MODEM_CTRL 	1 /* Set the modem control register */
-#define FTDI_SIO_SET_FLOW_CTRL	2 /* Set flow control register */
-#define FTDI_SIO_SET_BAUD_RATE	3 /* Set baud rate */
-#define FTDI_SIO_SET_DATA	4 /* Set the data characteristics of the port */
-#define FTDI_SIO_GET_MODEM_STATUS	5 /* Retrieve current value of modern status register */
-#define FTDI_SIO_SET_EVENT_CHAR	6 /* Set the event character */
-#define FTDI_SIO_SET_ERROR_CHAR	7 /* Set the error character */
+#define FTDI_SIO_RESET			0 /* Reset the port */
+#define FTDI_SIO_MODEM_CTRL		1 /* Set the modem control register */
+#define FTDI_SIO_SET_FLOW_CTRL		2 /* Set flow control register */
+#define FTDI_SIO_SET_BAUD_RATE		3 /* Set baud rate */
+#define FTDI_SIO_SET_DATA		4 /* Set the data characteristics of
+					     the port */
+#define FTDI_SIO_GET_MODEM_STATUS	5 /* Retrieve current value of modem
+					     status register */
+#define FTDI_SIO_SET_EVENT_CHAR		6 /* Set the event character */
+#define FTDI_SIO_SET_ERROR_CHAR		7 /* Set the error character */
 #define FTDI_SIO_SET_LATENCY_TIMER	9 /* Set the latency timer */
 #define FTDI_SIO_GET_LATENCY_TIMER	10 /* Get the latency timer */
 
-/* Interface indicies for FT2232, FT2232H and FT4232H devices*/
+/* Interface indices for FT2232, FT2232H and FT4232H devices */
 #define INTERFACE_A		1
 #define INTERFACE_B		2
 #define INTERFACE_C		3
 #define INTERFACE_D		4
 
-/*
- * FIC / OpenMoko, Inc. http://wiki.openmoko.org/wiki/Neo1973_Debug_Board_v3
- * Submitted by Harald Welte <laforge@openmoko.org>
- */
-#define	FIC_VID			0x1457
-#define	FIC_NEO1973_DEBUG_PID	0x5118
-
-/*
- * RATOC REX-USB60F
- */
-#define RATOC_VENDOR_ID		0x0584
-#define RATOC_PRODUCT_ID_USB60F	0xb020
-
-/*
- * DIEBOLD BCS SE923
- */
-#define DIEBOLD_BCS_SE923_PID	0xfb99
-
-/*
- * Atmel STK541
- */
-#define ATMEL_VID		0x03eb /* Vendor ID */
-#define STK541_PID		0x2109 /* Zigbee Controller */
-
-/*
- * Dresden Elektronic Sensor Terminal Board
- */
-#define DE_VID			0x1cf1 /* Vendor ID */
-#define STB_PID			0x0001 /* Sensor Terminal Board */
-#define WHT_PID			0x0004 /* Wireless Handheld Terminal */
-
-/*
- * Blackfin gnICE JTAG
- * http://docs.blackfin.uclinux.org/doku.php?id=hw:jtag:gnice
- */
-#define ADI_VID 		0x0456
-#define ADI_GNICE_PID 		0xF000
-#define ADI_GNICEPLUS_PID 	0xF001
-
-/*
- * JETI SPECTROMETER SPECBOS 1201
- * http://www.jeti.com/products/sys/scb/scb1201.php
- */
-#define JETI_VID		0x0c6c
-#define JETI_SPC1201_PID	0x04b2
-
-/*
- * Marvell SheevaPlug
- */
-#define MARVELL_VID		0x9e88
-#define MARVELL_SHEEVAPLUG_PID	0x9e8f
-
-#define FTDI_TURTELIZER_PID	0xBDC8 /* JTAG/RS-232 adapter by egnite GmBH */
-
-/*
- * GN Otometrics (http://www.otometrics.com)
- * Submitted by Ville Sundberg.
- */
-#define GN_OTOMETRICS_VID	0x0c33	/* Vendor ID */
-#define AURICAL_USB_PID		0x0010	/* Aurical USB Audiometer */
-
-/*
- * Bayer Ascensia Contour blood glucose meter USB-converter cable.
- * http://winglucofacts.com/cables/
- */
-#define BAYER_VID                      0x1A79
-#define BAYER_CONTOUR_CABLE_PID        0x6001
-
-/*
- * Marvell OpenRD Base, Client
- * http://www.open-rd.org
- * OpenRD Base, Client use VID 0x0403
- */
-#define MARVELL_OPENRD_PID	0x9e90
-
-/*
- * Hameg HO820 and HO870 interface (using VID 0x0403)
- */
-#define        HAMEG_HO820_PID         0xed74
-#define        HAMEG_HO870_PID         0xed71
 
 /*
  *   BmRequestType:  1100 0000b
@@ -1002,7 +818,7 @@
  */
 
 /* Port Identifier Table */
-#define PIT_DEFAULT 		0 /* SIOA */
+#define PIT_DEFAULT		0 /* SIOA */
 #define PIT_SIOA		1 /* SIOA */
 /* The device this driver is tested with one has only one port */
 #define PIT_SIOB		2 /* SIOB */
@@ -1053,20 +869,21 @@
  * wLength:        0
  * Data:           None
  * The BaudDivisor values are calculated as follows:
- * - BaseClock is either 12000000 or 48000000 depending on the device. FIXME: I wish
- *   I knew how to detect old chips to select proper base clock!
+ * - BaseClock is either 12000000 or 48000000 depending on the device.
+ *   FIXME: I wish I knew how to detect old chips to select proper base clock!
  * - BaudDivisor is a fixed point number encoded in a funny way.
  *   (--WRONG WAY OF THINKING--)
  *   BaudDivisor is a fixed point number encoded with following bit weighs:
  *   (-2)(-1)(13..0). It is a radical with a denominator of 4, so values
  *   end with 0.0 (00...), 0.25 (10...), 0.5 (01...), and 0.75 (11...).
  *   (--THE REALITY--)
- *   The both-bits-set has quite different meaning from 0.75 - the chip designers
- *   have decided it to mean 0.125 instead of 0.75.
+ *   The both-bits-set has quite different meaning from 0.75 - the chip
+ *   designers have decided it to mean 0.125 instead of 0.75.
  *   This info looked up in FTDI application note "FT8U232 DEVICES \ Data Rates
  *   and Flow Control Consideration for USB to RS232".
  * - BaudDivisor = (BaseClock / 16) / BaudRate, where the (=) operation should
- *   automagically re-encode the resulting value to take fractions into consideration.
+ *   automagically re-encode the resulting value to take fractions into
+ *   consideration.
  * As all values are integers, some bit twiddling is in order:
  *   BaudDivisor = (BaseClock / 16 / BaudRate) |
  *   (((BaseClock / 2 / BaudRate) & 4) ? 0x4000    // 0.5
@@ -1096,7 +913,7 @@
  * not supported by the FT8U232AM).
  */
 
-typedef enum {
+enum ftdi_chip_type {
 	SIO = 1,
 	FT8U232AM = 2,
 	FT232BM = 3,
@@ -1104,37 +921,36 @@ typedef enum {
 	FT232RL = 5,
 	FT2232H = 6,
 	FT4232H = 7
-} ftdi_chip_type_t;
+};
 
-typedef enum {
- ftdi_sio_b300 = 0,
- ftdi_sio_b600 = 1,
- ftdi_sio_b1200 = 2,
- ftdi_sio_b2400 = 3,
- ftdi_sio_b4800 = 4,
- ftdi_sio_b9600 = 5,
- ftdi_sio_b19200 = 6,
- ftdi_sio_b38400 = 7,
- ftdi_sio_b57600 = 8,
- ftdi_sio_b115200 = 9
-} FTDI_SIO_baudrate_t;
+enum ftdi_sio_baudrate {
+	ftdi_sio_b300 = 0,
+	ftdi_sio_b600 = 1,
+	ftdi_sio_b1200 = 2,
+	ftdi_sio_b2400 = 3,
+	ftdi_sio_b4800 = 4,
+	ftdi_sio_b9600 = 5,
+	ftdi_sio_b19200 = 6,
+	ftdi_sio_b38400 = 7,
+	ftdi_sio_b57600 = 8,
+	ftdi_sio_b115200 = 9
+};
 
 /*
- * The ftdi_8U232AM_xxMHz_byyy constants have been removed. The encoded divisor values
- * are calculated internally.
+ * The ftdi_8U232AM_xxMHz_byyy constants have been removed. The encoded divisor
+ * values are calculated internally.
  */
-
-#define FTDI_SIO_SET_DATA_REQUEST FTDI_SIO_SET_DATA
-#define FTDI_SIO_SET_DATA_REQUEST_TYPE 0x40
-#define FTDI_SIO_SET_DATA_PARITY_NONE (0x0 << 8)
-#define FTDI_SIO_SET_DATA_PARITY_ODD (0x1 << 8)
-#define FTDI_SIO_SET_DATA_PARITY_EVEN (0x2 << 8)
-#define FTDI_SIO_SET_DATA_PARITY_MARK (0x3 << 8)
-#define FTDI_SIO_SET_DATA_PARITY_SPACE (0x4 << 8)
-#define FTDI_SIO_SET_DATA_STOP_BITS_1 (0x0 << 11)
-#define FTDI_SIO_SET_DATA_STOP_BITS_15 (0x1 << 11)
-#define FTDI_SIO_SET_DATA_STOP_BITS_2 (0x2 << 11)
-#define FTDI_SIO_SET_BREAK (0x1 << 14)
+#define FTDI_SIO_SET_DATA_REQUEST	FTDI_SIO_SET_DATA
+#define FTDI_SIO_SET_DATA_REQUEST_TYPE	0x40
+#define FTDI_SIO_SET_DATA_PARITY_NONE	(0x0 << 8)
+#define FTDI_SIO_SET_DATA_PARITY_ODD	(0x1 << 8)
+#define FTDI_SIO_SET_DATA_PARITY_EVEN	(0x2 << 8)
+#define FTDI_SIO_SET_DATA_PARITY_MARK	(0x3 << 8)
+#define FTDI_SIO_SET_DATA_PARITY_SPACE	(0x4 << 8)
+#define FTDI_SIO_SET_DATA_STOP_BITS_1	(0x0 << 11)
+#define FTDI_SIO_SET_DATA_STOP_BITS_15	(0x1 << 11)
+#define FTDI_SIO_SET_DATA_STOP_BITS_2	(0x2 << 11)
+#define FTDI_SIO_SET_BREAK		(0x1 << 14)
 /* FTDI_SIO_SET_DATA */
 
 /*
@@ -1220,7 +1036,7 @@ typedef enum {
  *   BmRequestType:  0100 0000b
  *   bRequest:       FTDI_SIO_SET_FLOW_CTRL
  *   wValue:         Xoff/Xon
- *   wIndex:         Protocol/Port - hIndex is protocl / lIndex is port
+ *   wIndex:         Protocol/Port - hIndex is protocol / lIndex is port
  *   wLength:        0
  *   Data:           None
  *
@@ -1237,8 +1053,8 @@ typedef enum {
  *
  * A value of zero in the hIndex field disables handshaking
  *
- * If Xon/Xoff handshaking is specified, the hValue field should contain the XOFF character
- * and the lValue field contains the XON character.
+ * If Xon/Xoff handshaking is specified, the hValue field should contain the
+ * XOFF character and the lValue field contains the XON character.
  */
 
 /*
@@ -1323,7 +1139,10 @@ typedef enum {
 
 /* FTDI_SIO_SET_ERROR_CHAR */
 
-/* Set the parity error replacement character for the specified communications port */
+/*
+ * Set the parity error replacement character for the specified communications
+ * port
+ */
 
 /*
  *  BmRequestType:  0100 0000b
@@ -1446,9 +1265,10 @@ typedef enum {
  *
  * IN Endpoint
  *
- * The device reserves the first two bytes of data on this endpoint to contain the current
- * values of the modem and line status registers. In the absence of data, the device 
- * generates a message consisting of these two status bytes every 40 ms
+ * The device reserves the first two bytes of data on this endpoint to contain
+ * the current values of the modem and line status registers. In the absence of
+ * data, the device generates a message consisting of these two status bytes
+ * every 40 ms
  *
  * Byte 0: Modem Status
  *
@@ -1480,21 +1300,21 @@ typedef enum {
 #define FTDI_RS0_RI	(1 << 6)
 #define FTDI_RS0_RLSD	(1 << 7)
 
-#define FTDI_RS_DR  1
-#define FTDI_RS_OE (1<<1)
-#define FTDI_RS_PE (1<<2)
-#define FTDI_RS_FE (1<<3)
-#define FTDI_RS_BI (1<<4)
-#define FTDI_RS_THRE (1<<5)
-#define FTDI_RS_TEMT (1<<6)
-#define FTDI_RS_FIFO  (1<<7)
+#define FTDI_RS_DR	1
+#define FTDI_RS_OE	(1<<1)
+#define FTDI_RS_PE	(1<<2)
+#define FTDI_RS_FE	(1<<3)
+#define FTDI_RS_BI	(1<<4)
+#define FTDI_RS_THRE	(1<<5)
+#define FTDI_RS_TEMT	(1<<6)
+#define FTDI_RS_FIFO	(1<<7)
 
 /*
  * OUT Endpoint
  *
- * This device reserves the first bytes of data on this endpoint contain the length
- * and port identifier of the message. For the FTDI USB Serial converter the port 
- * identifier is always 1.
+ * This device reserves the first bytes of data on this endpoint contain the
+ * length and port identifier of the message. For the FTDI USB Serial converter
+ * the port identifier is always 1.
  *
  * Byte 0: Line Status
  *
@@ -1504,4 +1324,3 @@ typedef enum {
  * B2..7	Length of message - (not including Byte 0)
  *
  */
-
