@@ -33,6 +33,7 @@
 #include <linux/irq.h>
 #include <linux/interrupt.h>
 #include <linux/input-polldev.h>
+#include <linux/slab.h>
 
 #define CTRL_REG1				0x20
 #define CTRL_REG1_POWER_DOWN			(1<<6)

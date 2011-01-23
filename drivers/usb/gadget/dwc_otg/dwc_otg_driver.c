@@ -11,6 +11,7 @@
 #include "dwc_otg_driver.h"
 
 #include <linux/irq.h>
+#include <linux/slab.h>
 #include <asm/io.h>
 
 #include "dwc_otg_regs.h"

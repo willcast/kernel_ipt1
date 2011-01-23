@@ -27,41 +27,6 @@
 #include "assoc.h"
 #include "cmd.h"
 
-
-/* Begin iPhone ATAG stuff */
-
-static u8 iphone_mac[6];
-static u8 iphone_wifi_cal[0x400];
-static size_t iphone_wifi_cal_size = 0;
-
-#include <asm/setup.h>
-#define ATAG_IPHONE_WIFI 0x54411002
-
-struct atag_iphone_wifi {
-	u8         mac[6];
-	u32        calSize;
-	u8         cal[];
-};
-
-struct atag_iphone_type {
-	u32        type;
-};
-
-static int __init parse_tag_wifi(const struct tag *tag)
-{
-	const struct atag_iphone_wifi* wifi_tag = (const struct atag_iphone_wifi*)(((const u8*)tag) + sizeof(struct tag_header));
-
-	memcpy(iphone_mac, wifi_tag->mac, 6);
-	iphone_wifi_cal_size = wifi_tag->calSize;
-	memset(iphone_wifi_cal, 0, sizeof(iphone_wifi_cal));
-	memcpy(iphone_wifi_cal, wifi_tag->cal, iphone_wifi_cal_size);
-
-	return 0;
-}
-__tagtable(ATAG_IPHONE_WIFI, parse_tag_wifi);
-
-/* End iPhone ATAG stuff */
-
 #define DRIVER_RELEASE_VERSION "323.p0"
 const char lbs_driver_version[] = "COMM-USB8388-" DRIVER_RELEASE_VERSION
 #ifdef  DEBUG
@@ -717,86 +682,6 @@ void lbs_resume(struct lbs_private *priv)
 }
 EXPORT_SYMBOL_GPL(lbs_resume);
 
-static int lbs_set_rf_reg(struct lbs_private* priv, u16 offset, u8 value)
-{
-	struct lbs_offset_value offval;
-	int ret;
-
-	offval.offset = offset;
-	offval.value = value;
-
-	ret = lbs_prepare_and_send_command(priv,
-				CMD_BBP_REG_ACCESS, CMD_ACT_SET,
-				CMD_OPTION_WAITFORRSP, 0, &offval);
-
-	return ret;
-}
-
-static int lbs_set_mac_reg(struct lbs_private* priv, u16 offset, u32 value)
-{
-	struct lbs_offset_value offval;
-	int ret;
-
-	offval.offset = offset;
-	offval.value = value;
-
-	ret = lbs_prepare_and_send_command(priv,
-				CMD_MAC_REG_ACCESS, CMD_ACT_SET,
-				CMD_OPTION_WAITFORRSP, 0, &offval);
-
-	return ret;
-}
-
-static int lbs_get_mac_reg(struct lbs_private* priv, u16 offset, u32* value)
-{
-	struct lbs_offset_value offval;
-	int ret;
-
-	offval.offset = offset;
-	offval.value = 0;
-
-	ret = lbs_prepare_and_send_command(priv,
-				CMD_MAC_REG_ACCESS, CMD_ACT_GET,
-				CMD_OPTION_WAITFORRSP, 0, &offval);
-
-	*value = priv->offsetvalue.value;
-
-	return ret;
-}
-
-static int lbs_set_bbp_reg(struct lbs_private* priv, u16 offset, u8 value)
-{
-	struct lbs_offset_value offval;
-	int ret;
-
-	offval.offset = offset;
-	offval.value = value;
-
-	ret = lbs_prepare_and_send_command(priv,
-				CMD_RF_REG_ACCESS, CMD_ACT_SET,
-				CMD_OPTION_WAITFORRSP, 0, &offval);
-
-	return ret;
-}
-
-static void lbs_set_tx_cal_data(struct lbs_private *priv)
-{
-	struct cmd_ds_802_11_cal_data_ext* cmd;
-	int ret;
-
-	cmd = kzalloc(sizeof(struct cmd_ds_802_11_cal_data_ext), GFP_KERNEL);
-
-	cmd->hdr.size = cpu_to_le16(sizeof(struct cmd_ds_802_11_cal_data_ext) - LBS_CAL_DATA_LEN + sizeof(iphone_wifi_cal));
-	cmd->action = cpu_to_le16(CMD_ACT_SET);
-	cmd->revision = cpu_to_le16(0);
-	cmd->len = cpu_to_le16(sizeof(iphone_wifi_cal));
-
-	memcpy(cmd->data, iphone_wifi_cal, sizeof(iphone_wifi_cal));
-
-	ret = lbs_cmd_with_response(priv, CMD_802_11_CAL_DATA_EXT, cmd);
-	kfree(cmd);
-}
-
 /**
  * @brief This function gets the HW spec from the firmware and sets
  *        some basic parameters.
@@ -806,93 +691,16 @@ static void lbs_set_tx_cal_data(struct lbs_private *priv)
  */
 static int lbs_setup_firmware(struct lbs_private *priv)
 {
-	struct sleep_params sp;
 	int ret = -1;
-	u32 macv;
 	s16 curlevel = 0, minlevel = 0, maxlevel = 0;
 
 	lbs_deb_enter(LBS_DEB_FW);
-
-	sp.sp_error = 5000;
-	sp.sp_offset = 500;
-	sp.sp_stabletime = 4000;
-	sp.sp_calcontrol = 2;
-	sp.sp_extsleepclk = 2;
-	sp.sp_reserved = 0;
-
-	ret = lbs_cmd_802_11_sleep_params(priv, CMD_ACT_SET, &sp);
-	if (ret)
-		goto done;
 
 	/* Read MAC address from firmware */
 	memset(priv->current_addr, 0xff, ETH_ALEN);
 	ret = lbs_update_hw_spec(priv);
 	if (ret)
 		goto done;
-
-	if(iphone_wifi_cal_size > 0)
-	{
-		/* Initialize wifi variables from baseband NVRAM */
-
-		struct cmd_ds_802_11_mac_address cmd;
-
-		cmd.hdr.size = cpu_to_le16(sizeof(cmd));
-		cmd.action = cpu_to_le16(CMD_ACT_SET);
-		memcpy(cmd.macadd, iphone_mac, ETH_ALEN);
-
-		ret = lbs_cmd_with_response(priv, CMD_802_11_MAC_ADDRESS, &cmd);
-		if (ret) {
-			lbs_deb_net("set MAC address failed\n");
-			goto done;
-		}
-
-		memcpy(priv->current_addr, iphone_mac, ETH_ALEN);
-		memcpy(priv->dev->dev_addr, iphone_mac, ETH_ALEN);
-
-		lbs_set_tx_cal_data(priv);
-	}
-
-	lbs_set_mac_control(priv);
-
-	ret = lbs_set_radio(priv, RADIO_PREAMBLE_LONG, 1);
-	if (ret)
-		goto done;
-
-	lbs_set_rf_reg(priv, 0x50, 0x50);
-	lbs_set_rf_reg(priv, 0x6B, 0xAE);
-	lbs_set_mac_reg(priv, 0xA240, 0xA3000);
-
-	// 2G = 0, 3G = 1, iPod = 2
-
-	// 2G config
-#ifdef CONFIG_IPHONE_2G
-	lbs_set_mac_reg(priv, 0xA5AC, 0xC8);
-	lbs_set_mac_reg(priv, 0xA5B0, 0xC8 << 2);
-	lbs_set_mac_reg(priv, 0xA5A8, 0xAF << 3);
-	lbs_set_mac_reg(priv, 0xA5B4, 0xAF << 4);
-	lbs_set_mac_reg(priv, 0xA5A4, 0xAF << 4);
-	lbs_set_mac_reg(priv, 0xA58C, 0x40214);
-	lbs_set_mac_reg(priv, 0xA5A0, 0x524D);
-	lbs_set_mac_reg(priv, 0xA5F0, 0xA2271814);
-#endif
-
-	// 3G config
-#ifdef CONFIG_IPHONE_3G
-	lbs_set_mac_reg(priv, 0xA58C, 0x40212);
-	lbs_set_mac_reg(priv, 0xA5A0, 0x524D);
-	lbs_set_mac_reg(priv, 0xA5F0, 0xA2271814);
-	lbs_set_bbp_reg(priv, 0xE9, 0xB1);
-	lbs_set_bbp_reg(priv, 0xEF, 0xC);
-	lbs_set_rf_reg(priv, 0x32, 0x5D);
-	lbs_set_rf_reg(priv, 0x6B, 0xAE);
-#endif
-
-	// iPod touch config
-#ifdef CONFIG_IPODTOUCH_1G
-	lbs_set_mac_reg(priv, 0xA58C, 0x40212);
-	lbs_set_mac_reg(priv, 0xA5A0, 0xD24D);
-	lbs_set_mac_reg(priv, 0xA5F0, 0xA027181C);
-#endif
 
 	/* Read power levels if available */
 	ret = lbs_get_tx_power(priv, &curlevel, &minlevel, &maxlevel);
@@ -902,11 +710,7 @@ static int lbs_setup_firmware(struct lbs_private *priv)
 		priv->txpower_max = maxlevel;
 	}
 
-	lbs_set_bbp_reg(priv, 0x4E, 0x1B);
-
-	lbs_get_mac_reg(priv, 0x2048, &macv);
-	lbs_set_mac_reg(priv, 0x2048, macv | 0x80);
-
+	lbs_set_mac_control(priv);
 done:
 	lbs_deb_leave_args(LBS_DEB_FW, "ret %d", ret);
 	return ret;

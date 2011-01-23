@@ -2,10 +2,6 @@
  *
  * (C) 2006-2008 by Openmoko, Inc.
  * Author: Balaji Rao <balajirrao@openmoko.org>
- *
- * Portions (c) 2010 Ricky Taylor
- * 	- Timer offset.
- *
  * All rights reserved.
  *
  * Broken down from monstrous PCF50633 driver mainly by
@@ -44,7 +40,6 @@
 #define PCF50633_REG_RTCDTA	0x64 /* Alarm Day */
 #define PCF50633_REG_RTCMTA	0x65 /* Alarm Month */
 #define PCF50633_REG_RTCYRA	0x66 /* Alarm Year */
-#define PCF50633_REG_RTCOFF	0x6B /* Clock Offset */
 
 enum pcf50633_time_indexes {
 	PCF50633_TI_SEC,
@@ -68,34 +63,10 @@ struct pcf50633_rtc {
 
 	struct pcf50633 *pcf;
 	struct rtc_device *rtc_dev;
-	struct platform_device *dev;
 };
 
-static void pcf2rtc_time(struct pcf50633_rtc *pcf_rtc, struct rtc_time *rtc, struct pcf50633_time *pcf)
+static void pcf2rtc_time(struct rtc_time *rtc, struct pcf50633_time *pcf)
 {
-#ifdef CONFIG_RTC_DRV_PCF50633_OFFSET
-	s32 offset;
-	int ret;
-
-	unsigned long time = mktime(
-		2000 + bcd2bin(bcd2bin(pcf->time[PCF50633_TI_YEAR])),	// Years
-		bcd2bin(pcf->time[PCF50633_TI_MONTH]),					// Months
-		bcd2bin(pcf->time[PCF50633_TI_DAY]),					// Days
-		bcd2bin(pcf->time[PCF50633_TI_HOUR]),					// Hours
-		bcd2bin(pcf->time[PCF50633_TI_MIN]),					// Minutes
-		bcd2bin(pcf->time[PCF50633_TI_SEC])						// Seconds
-		); 
-
-	ret = pcf50633_read_block(pcf_rtc->pcf, PCF50633_REG_RTCOFF,
-					    sizeof(offset),
-					    (u8*)&offset);
-	if (ret == sizeof(offset)) {
-		dev_dbg(&pcf_rtc->dev->dev, "OFFSET 0x%08x, %d\n", offset, offset);
-		time += offset;
-	}
-
-	rtc_time_to_tm(time, rtc);
-#else
 	rtc->tm_sec = bcd2bin(pcf->time[PCF50633_TI_SEC]);
 	rtc->tm_min = bcd2bin(pcf->time[PCF50633_TI_MIN]);
 	rtc->tm_hour = bcd2bin(pcf->time[PCF50633_TI_HOUR]);
@@ -103,37 +74,10 @@ static void pcf2rtc_time(struct pcf50633_rtc *pcf_rtc, struct rtc_time *rtc, str
 	rtc->tm_mday = bcd2bin(pcf->time[PCF50633_TI_DAY]);
 	rtc->tm_mon = bcd2bin(pcf->time[PCF50633_TI_MONTH]) - 1;
 	rtc->tm_year = bcd2bin(pcf->time[PCF50633_TI_YEAR]) + 100;
-#endif
 }
 
-static void rtc2pcf_time(struct pcf50633_rtc *pcf_rtc, struct pcf50633_time *pcf, struct rtc_time *rtc)
+static void rtc2pcf_time(struct pcf50633_time *pcf, struct rtc_time *rtc)
 {
-#ifdef CONFIG_RTC_DRV_PCF50633_OFFSET
-	unsigned long time;
-	s32 offset;
-	int ret;
-	struct rtc_time rtc_time;
-
-	if(rtc_tm_to_time(rtc, &time))
-		goto error;
-
-	ret = pcf50633_read_block(pcf_rtc->pcf, PCF50633_REG_RTCOFF,
-					    sizeof(offset),
-					    (u8*)&offset);
-	if (ret == sizeof(offset)) {
-		time -= offset;
-	}
-
-	rtc_time_to_tm(time, &rtc_time);
-
-	pcf->time[PCF50633_TI_SEC] = bin2bcd(rtc_time.tm_sec);
-	pcf->time[PCF50633_TI_MIN] = bin2bcd(rtc_time.tm_min);
-	pcf->time[PCF50633_TI_HOUR] = bin2bcd(rtc_time.tm_hour);
-	pcf->time[PCF50633_TI_WKDAY] = bin2bcd(rtc_time.tm_wday);
-	pcf->time[PCF50633_TI_DAY] = bin2bcd(rtc_time.tm_mday);
-	pcf->time[PCF50633_TI_MONTH] = bin2bcd(rtc_time.tm_mon + 1);
-	pcf->time[PCF50633_TI_YEAR] = bin2bcd(rtc_time.tm_year % 100);
-#else
 	pcf->time[PCF50633_TI_SEC] = bin2bcd(rtc->tm_sec);
 	pcf->time[PCF50633_TI_MIN] = bin2bcd(rtc->tm_min);
 	pcf->time[PCF50633_TI_HOUR] = bin2bcd(rtc->tm_hour);
@@ -141,10 +85,6 @@ static void rtc2pcf_time(struct pcf50633_rtc *pcf_rtc, struct pcf50633_time *pcf
 	pcf->time[PCF50633_TI_DAY] = bin2bcd(rtc->tm_mday);
 	pcf->time[PCF50633_TI_MONTH] = bin2bcd(rtc->tm_mon + 1);
 	pcf->time[PCF50633_TI_YEAR] = bin2bcd(rtc->tm_year % 100);
-#endif
-
-error:
-	return;
 }
 
 static int
@@ -209,7 +149,7 @@ static int pcf50633_rtc_read_time(struct device *dev, struct rtc_time *tm)
 		pcf_tm.time[PCF50633_TI_MIN],
 		pcf_tm.time[PCF50633_TI_SEC]);
 
-	pcf2rtc_time(rtc, tm, &pcf_tm);
+	pcf2rtc_time(tm, &pcf_tm);
 
 	dev_dbg(dev, "RTC_TIME: %u.%u.%u %u:%u:%u\n",
 		tm->tm_mday, tm->tm_mon, tm->tm_year,
@@ -226,12 +166,11 @@ static int pcf50633_rtc_set_time(struct device *dev, struct rtc_time *tm)
 
 	rtc = dev_get_drvdata(dev);
 
-#ifdef CONFIG_RTC_DRV_PCF50633_OFFSET
 	dev_dbg(dev, "RTC_TIME: %u.%u.%u %u:%u:%u\n",
 		tm->tm_mday, tm->tm_mon, tm->tm_year,
 		tm->tm_hour, tm->tm_min, tm->tm_sec);
 
-	rtc2pcf_time(rtc, &pcf_tm, tm);
+	rtc2pcf_time(&pcf_tm, tm);
 
 	dev_dbg(dev, "PCF_TIME: %02x.%02x.%02x %02x:%02x:%02x\n",
 		pcf_tm.time[PCF50633_TI_DAY],
@@ -260,53 +199,6 @@ static int pcf50633_rtc_set_time(struct device *dev, struct rtc_time *tm)
 	if (!alarm_masked)
 		pcf50633_irq_unmask(rtc->pcf, PCF50633_IRQ_ALARM);
 
-#else
-	ret = pcf50633_read_block(rtc->pcf, PCF50633_REG_RTCSC,
-					    PCF50633_TI_EXTENT,
-					    &pcf_tm.time[0]);
-	if (ret != PCF50633_TI_EXTENT) {
-		dev_err(dev, "Failed to read time\n");
-		return -EIO;
-	}
-
-	dev_dbg(dev, "PCF_TIME: %02x.%02x.%02x %02x:%02x:%02x\n",
-		pcf_tm.time[PCF50633_TI_DAY],
-		pcf_tm.time[PCF50633_TI_MONTH],
-		pcf_tm.time[PCF50633_TI_YEAR],
-		pcf_tm.time[PCF50633_TI_HOUR],
-		pcf_tm.time[PCF50633_TI_MIN],
-		pcf_tm.time[PCF50633_TI_SEC]);
-
-	s32 time = mktime(
-		2000 + bcd2bin(bcd2bin(pcf_tm.time[PCF50633_TI_YEAR])),	// Years
-		bcd2bin(pcf_tm.time[PCF50633_TI_MONTH]),				// Months
-		bcd2bin(pcf_tm.time[PCF50633_TI_DAY]),					// Days
-		bcd2bin(pcf_tm.time[PCF50633_TI_HOUR]),					// Hours
-		bcd2bin(pcf_tm.time[PCF50633_TI_MIN]),					// Minutes
-		bcd2bin(pcf_tm.time[PCF50633_TI_SEC])					// Seconds
-		); 
-
-	s32 destTime = rtc_tm_to_time(tm);
-	s32 new_offset = destTime-time;
-
-	second_masked = pcf50633_irq_mask_get(rtc->pcf, PCF50633_IRQ_SECOND);
-	alarm_masked = pcf50633_irq_mask_get(rtc->pcf, PCF50633_IRQ_ALARM);
-
-	if (!second_masked)
-		pcf50633_irq_mask(rtc->pcf, PCF50633_IRQ_SECOND);
-	if (!alarm_masked)
-		pcf50633_irq_mask(rtc->pcf, PCF50633_IRQ_ALARM);
-
-	ret = pcf50633_write_block(rtc->pcf, PCF50633_REG_RTCOF,
-					     sizeof(new_offset),
-					     &new_offset);
-
-	if (!second_masked)
-		pcf50633_irq_unmask(rtc->pcf, PCF50633_IRQ_SECOND);
-	if (!alarm_masked)
-		pcf50633_irq_unmask(rtc->pcf, PCF50633_IRQ_ALARM);
-#endif
-
 	return ret;
 }
 
@@ -328,7 +220,7 @@ static int pcf50633_rtc_read_alarm(struct device *dev, struct rtc_wkalrm *alrm)
 		return -EIO;
 	}
 
-	pcf2rtc_time(rtc, &alrm->time, &pcf_tm);
+	pcf2rtc_time(&alrm->time, &pcf_tm);
 
 	return rtc_valid_tm(&alrm->time);
 }
@@ -341,7 +233,7 @@ static int pcf50633_rtc_set_alarm(struct device *dev, struct rtc_wkalrm *alrm)
 
 	rtc = dev_get_drvdata(dev);
 
-	rtc2pcf_time(rtc, &pcf_tm, &alrm->time);
+	rtc2pcf_time(&pcf_tm, &alrm->time);
 
 	/* do like mktime does and ignore tm_wday */
 	pcf_tm.time[PCF50633_TI_WKDAY] = 7;
@@ -397,8 +289,6 @@ static int __devinit pcf50633_rtc_probe(struct platform_device *pdev)
 	if (!rtc)
 		return -ENOMEM;
 
-	pdata = pdev->dev.platform_data;
-	rtc->dev = pdev;
 	rtc->pcf = dev_to_pcf50633(pdev->dev.parent);
 	platform_set_drvdata(pdev, rtc);
 	rtc->rtc_dev = rtc_device_register("pcf50633-rtc", &pdev->dev,

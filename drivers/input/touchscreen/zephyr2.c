@@ -16,6 +16,7 @@
 #include <linux/interrupt.h>
 #include <mach/iphone-spi.h>
 #include <mach/gpio.h>
+#include <linux/slab.h>
 
 #ifdef CONFIG_IPHONE_2G
 #	define MT_GPIO_POWER 0x804

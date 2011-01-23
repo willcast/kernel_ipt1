@@ -3,6 +3,7 @@
 #include <ftl/ftl.h>
 #include <ftl/nand.h>
 #include <linux/sched.h>
+#include <linux/slab.h>
 #include <linux/workqueue.h>
 #include <linux/delay.h>
 #include <linux/platform_device.h>
@@ -257,7 +258,7 @@ static int iphone_block_probe(struct platform_device *pdev)
 
 	blk_queue_lld_busy(iphone_block_device.queue, iphone_block_busy);
 	blk_queue_bounce_limit(iphone_block_device.queue, BLK_BOUNCE_ANY);
-	blk_queue_max_sectors(iphone_block_device.queue, NANDGeometry->pagesPerSuBlk * (iphone_block_device.sectorSize >> SECTOR_SHIFT));
+	blk_queue_max_hw_sectors(iphone_block_device.queue, NANDGeometry->pagesPerSuBlk * (iphone_block_device.sectorSize >> SECTOR_SHIFT));
 	blk_queue_max_segment_size(iphone_block_device.queue, NANDGeometry->pagesPerSuBlk * iphone_block_device.sectorSize);
 	blk_queue_physical_block_size(iphone_block_device.queue, iphone_block_device.sectorSize);
 	blk_queue_logical_block_size(iphone_block_device.queue, iphone_block_device.sectorSize);

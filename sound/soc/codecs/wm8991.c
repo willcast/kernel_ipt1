@@ -32,6 +32,7 @@
 #include <mach/gpio.h>
 #include <linux/switch.h>
 #include <linux/debugfs.h>
+#include <linux/slab.h>
 
 #include "wm8991.h"
 

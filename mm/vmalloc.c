@@ -879,18 +879,6 @@ again:
 			list_del_rcu(&vb->free_list);
 			spin_unlock(&vbq->lock);
 		}
-		addr = vb->va->va_start + (i << PAGE_SHIFT);
-		BUG_ON(addr_to_vb_idx(addr) !=
-				addr_to_vb_idx(vb->va->va_start));
-		vb->free -= 1UL << order;
-		if (vb->free == 0) {
-			spin_lock(&vbq->lock);
-			list_del_rcu(&vb->free_list);
-			spin_unlock(&vbq->lock);
-		}
-		spin_unlock(&vb->lock);
-		break;
-next:
 		spin_unlock(&vb->lock);
 		break;
 next:
@@ -2064,7 +2052,6 @@ void free_vm_area(struct vm_struct *area)
 }
 EXPORT_SYMBOL_GPL(free_vm_area);
 
-#ifndef CONFIG_HAVE_LEGACY_PER_CPU_AREA
 static struct vmap_area *node_to_va(struct rb_node *n)
 {
 	return n ? rb_entry(n, struct vmap_area, rb_node) : NULL;
@@ -2329,7 +2316,6 @@ err_free:
 	kfree(vms);
 	return NULL;
 }
-#endif
 
 /**
  * pcpu_free_vm_areas - free vmalloc areas for percpu allocator
