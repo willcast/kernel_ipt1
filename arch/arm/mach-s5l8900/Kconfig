@@ -1,0 +1,28 @@
+menu "S5L8900"
+	depends on ARCH_S5L8900
+	select POWER_PCF50633
+	help
+		Support for S5L8900 Chips found in the iPhone, iPhone 3G and iPod Touch 1G
+		
+choice
+	prompt "Model"
+	default IPHONE_3G
+
+config IPHONE_2G
+	bool "iPhone 2G"
+	help
+	  Say Y here if you are using the original iPhone.
+
+config IPHONE_3G
+	bool "iPhone 3G"
+	help
+	  Say Y here if you are using the iPhone 3G.
+
+config IPODTOUCH_1G
+	bool "iPod touch 1G"
+	help
+	  Say Y here if you are using the iPod touch 1G.
+
+endchoice
+
+endmenu
