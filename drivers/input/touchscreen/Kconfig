@@ -12,12 +12,12 @@ menuconfig INPUT_TOUCHSCREEN
 if INPUT_TOUCHSCREEN
 
 config TOUCHSCREEN_APPLE_IPHONE
-	tristate "Apple iPhone Zephyr TouchScreen (iPhone 2G)"
-	depends on MACH_APPLE_IPHONE
+	tristate "Broadcom BCM5973A (Apple Zephyr)"
+	depends on SPI_MASTER
 
 config TOUCHSCREEN_APPLE_ZEPHYR2
-	tristate "Apple iPhone Zephyr2 TouchScreen (iPhone 3G+)"
-	depends on MACH_APPLE_IPHONE
+	tristate "Broadcom BCM5974 (Apple Zephyr2)"
+	depends on SPI_MASTER
 
 config TOUCHSCREEN_ADS7846
 	tristate "ADS7846/TSC2046 and ADS7843 based touchscreens"

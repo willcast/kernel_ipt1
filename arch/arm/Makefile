@@ -160,6 +160,9 @@ machine-$(CONFIG_ARCH_RPC)		:= rpc
 machine-$(CONFIG_ARCH_S3C2410)		:= s3c2410 s3c2400 s3c2412 s3c2440 s3c2442 s3c2443
 machine-$(CONFIG_ARCH_S3C24A0)		:= s3c24a0
 machine-$(CONFIG_ARCH_S3C64XX)		:= s3c6400 s3c6410
+machine-$(CONFIG_ARCH_S5L8900)		:= s5l8900
+#machine-$(CONFIG_ARCH_S5L8920)		:= s5l8920
+#machine-$(CONFIG_ARCH_S5L8930)		:= s5l8930
 machine-$(CONFIG_ARCH_S5PC1XX)		:= s5pc100
 machine-$(CONFIG_ARCH_SA1100)		:= sa1100
 machine-$(CONFIG_ARCH_SHARK)		:= shark
@@ -169,7 +172,6 @@ machine-$(CONFIG_ARCH_U300)		:= u300
 machine-$(CONFIG_ARCH_VERSATILE)	:= versatile
 machine-$(CONFIG_ARCH_W90X900)		:= w90x900
 machine-$(CONFIG_FOOTBRIDGE)		:= footbridge
-machine-$(CONFIG_MACH_APPLE_IPHONE)	:= apple_iphone
 machine-$(CONFIG_ARCH_MXC91231)		:= mxc91231
 
 # Platform directory name.  This list is sorted alphanumerically

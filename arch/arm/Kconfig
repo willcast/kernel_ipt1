@@ -206,8 +206,8 @@ choice
 	prompt "ARM system type"
 	default ARCH_VERSATILE
 
-config MACH_APPLE_IPHONE
-	bool "Apple iPhone"
+config ARCH_S5L8900
+	bool "Samsung S5L8900"
 	select GENERIC_TIME
 	select GENERIC_CLOCKEVENTS
 	select SERIAL_CORE
@@ -220,7 +220,7 @@ config MACH_APPLE_IPHONE
 	select GENERIC_GPIO
         select S3C_DEV_USB_HSOTG
 	help
-	  Apple's iPhone!
+	  This enables support for the iPhone, iPhone 3G and iPod Touch 1G
 
 config ARCH_AAEC2000
 	bool "Agilent AAEC-2000 based"

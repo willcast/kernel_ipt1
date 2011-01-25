@@ -7,7 +7,7 @@ menu "Serial drivers"
 
 config SERIAL_APPLE_IPHONE
 	tristate "Apple iPhone serial support"
-	depends on MACH_APPLE_IPHONE
+	depends on ARCH_S5L8900
 	select SERIAL_CORE
 
 #
