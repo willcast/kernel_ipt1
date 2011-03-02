@@ -35,7 +35,7 @@
 
 
 MODULE_AUTHOR("Kalhan Trisal <kalhan.trisal at intel.com");
-MODULE_DESCRIPTION("STMacroelectronics LIS331DL Accelerometer Driver");
+MODULE_DESCRIPTION("STMicroelectronics LIS331DL Accelerometer Driver");
 MODULE_LICENSE("GPL v2");
 
 #define ACCEL_DATA_RATE_100HZ 0
@@ -77,7 +77,6 @@ static ssize_t state_show(struct device *dev,
 	return sprintf(buf, "%d\n", ret_val);
 }
 
-/* if adapter support multiple read better to use that device support that */
 static ssize_t xyz_pos_show(struct device *dev,
 				struct device_attribute *attr, char *buf)
 {
@@ -178,7 +177,7 @@ static int  lis331dl_probe(struct i2c_client *client,
 
 	data = kzalloc(sizeof(struct lis331dl_data), GFP_KERNEL);
 	if (data == NULL) {
-		printk(KERN_WARNING "lis331dl: Memory initi failed \n");
+		printk(KERN_WARNING "lis331dl: Memory alloc failed\n");
 		return -ENOMEM;
 	}
 	mutex_init(&data->update_lock);
@@ -186,7 +185,7 @@ static int  lis331dl_probe(struct i2c_client *client,
 
 	res = sysfs_create_group(&client->dev.kobj, &lis331dl_gr);
 	if (res) {
-		printk(KERN_WARNING "lis331dl: Sysfs  group failed!!\n");
+		printk(KERN_WARNING "lis331dl: Sysfs group creation failed\n");
 		goto acclero_error1;
 	}
 	data->hwmon_dev = hwmon_device_register(&client->dev);
@@ -194,14 +193,12 @@ static int  lis331dl_probe(struct i2c_client *client,
 		res = PTR_ERR(data->hwmon_dev);
 		data->hwmon_dev = NULL;
 		sysfs_remove_group(&client->dev.kobj, &lis331dl_gr);
-		printk(KERN_WARNING "lis331dl: unable to register \
-						hwmon device\n");
+		printk(KERN_WARNING "lis331dl: Unable to register hwmon device\n");
 		goto acclero_error1;
 	}
 	accel_set_default_config(client);
 
-	dev_info(&client->dev, "%s lis331dl:  Accelerometer chip \
-							foundn", client->name);
+	dev_info(&client->dev, "%s lis331dl: Accelerometer found", client->name);
 	return res;
 
 acclero_error1:
@@ -229,7 +226,7 @@ MODULE_DEVICE_TABLE(i2c, lis331dl_id);
 
 static struct i2c_driver lis331dl_driver = {
 	.driver = {
-	.name = "lis331dl",
+		.name = "lis331dl",
 	},
 	.probe = lis331dl_probe,
 	.remove = lis331dl_remove,
@@ -238,7 +235,7 @@ static struct i2c_driver lis331dl_driver = {
 
 static int __init sensor_lis331dl_init(void)
 {
-	return  i2c_add_driver(&lis331dl_driver);
+	return i2c_add_driver(&lis331dl_driver);
 }
 
 static void  __exit sensor_lis331dl_exit(void)
