@@ -217,7 +217,7 @@ void __init iphone_map_io(void)
 static struct i2c_board_info __initdata iphone_i2c0[] = {
 #ifdef CONFIG_IPHONE_2G
 	{
-		I2C_BOARD_INFO("iphone-accel", 0x3a),
+		I2C_BOARD_INFO("lis331dl", 0x3a),
 	},
 #if POWER_PCF50633
 	{
@@ -240,7 +240,7 @@ static struct i2c_board_info __initdata iphone_i2c0[] = {
 #endif
 #ifdef CONFIG_IPHONE_3G
 	{
-		I2C_BOARD_INFO("iphone-accel", 0x3a),
+		I2C_BOARD_INFO("lis331dl", 0x3a),
 	},
 #if POWER_PCF50633
 	{
@@ -263,7 +263,7 @@ static struct i2c_board_info __initdata iphone_i2c0[] = {
 #endif
 #ifdef CONFIG_IPODTOUCH_1G
 	{
-		I2C_BOARD_INFO("iphone-accel", 0x3a),
+		I2C_BOARD_INFO("lis331dl", 0x3a),
 	},
 #endif
 };
