@@ -188,6 +188,10 @@ void iphone_gpio_custom_io(int port, int bits) {
 				| ((bits & GPIO_IO_UMASK) << GPIO_IO_USHIFT), GPIO + GPIO_IO);
 }
 
+void iphone_gpio_pin_use_as_input(int port) {
+	iphone_gpio_custom_io(port, 0);
+}
+
 void iphone_gpio_pin_reset(int port) {
 	iphone_gpio_custom_io(port, 0);
 }

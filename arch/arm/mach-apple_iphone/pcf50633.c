@@ -328,3 +328,17 @@ void pcf50633_power_off(void)
 	}
 #endif
 }
+
+void pcf50633_suspend(void)
+{
+#if POWER_PCF50633
+	if(pcf50633)
+	{
+		pcf50633_reg_write(pcf50633, 0x0d, 0xFFFFFFFF); // Volatile, allow anything to wake
+		pcf50633_reg_write(pcf50633, 0x0f, 0x0); // No debounce
+		pcf50633_reg_write(pcf50633, PCF50633_REG_OOCSHDWN, 2); // Fall asleep
+				
+		printk("PCF50633 suspend complete.\n");
+	}
+#endif
+}
