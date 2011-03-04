@@ -208,7 +208,6 @@ choice
 
 config MACH_APPLE_IPHONE
 	bool "Apple iPhone"
-	select CPU_ARM610
 	select GENERIC_TIME
 	select GENERIC_CLOCKEVENTS
 	select SERIAL_CORE
