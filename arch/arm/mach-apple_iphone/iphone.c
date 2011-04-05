@@ -352,6 +352,10 @@ void __init iphone_init(void)
 	iphone_gpio_pin_output(0x804, 1);
 #endif
 
+#ifdef CONFIG_IPODTOUCH_1G
+        iphone_gpio_pin_output(0x701, 1);
+#endif
+
 }
 
 void __exit iphone_exit(void)
