@@ -44,6 +44,7 @@
 #include "core.h"
 #include "lcd.h"
 #include <mach/iphone-dma.h>
+#include <mach/gpio.h>
 #include <mach/iphone-i2c.h>
 #include <mach/usb.h>
 #include <mach/pmu.h>
