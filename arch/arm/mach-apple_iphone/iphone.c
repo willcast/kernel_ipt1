@@ -341,6 +341,17 @@ void __init iphone_init(void)
 	platform_device_register(&iphone_dma);
 	platform_device_register(&iphone_nand);
 	platform_device_register(&iphone_i2c);
+
+// nickp666: FIX THIS - ALS needs zX powered up before it will work
+
+#ifdef CONFIG_IPHONE_3G
+	iphone_gpio_pin_output(0x701, 1);
+#endif
+
+#ifdef CONFIG_IPHONE_2G
+	iphone_gpio_pin_output(0x804, 1);
+#endif
+
 }
 
 void __exit iphone_exit(void)
