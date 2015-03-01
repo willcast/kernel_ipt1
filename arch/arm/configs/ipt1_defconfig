@@ -1,7 +1,7 @@
 #
 # Automatically generated make config: don't edit
 # Linux kernel version: 2.6.32.9
-# Fri Feb 27 13:16:28 2015
+# Sun Mar  1 14:28:09 2015
 #
 CONFIG_ARM=y
 CONFIG_SYS_SUPPORTS_APM_EMULATION=y
@@ -199,7 +199,9 @@ CONFIG_S3C_DEV_USB_HSOTG=y
 # CONFIG_IPHONE_2G is not set
 # CONFIG_IPHONE_3G is not set
 CONFIG_IPODTOUCH_1G=y
-# CONFIG_IPHONE_PMU is not set
+CONFIG_IPHONE_PMU=y
+CONFIG_IPHONE_BATTERY=y
+CONFIG_IPHONE_BACKLIGHT=y
 
 #
 # Processor Type
