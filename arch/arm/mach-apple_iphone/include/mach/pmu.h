@@ -1,6 +1,8 @@
 #ifndef IPHONE_HW_PMU_H
 #define IPHONE_HW_PMU_H
 
+#include <linux/types.h>
+
 #define POWER_PCF50633 ((defined(CONFIG_IPHONE_3G)||defined(CONFIG_IPHONE_2G)||defined(CONFIG_IPODTOUCH_1G)) && defined(CONFIG_MFD_PCF50633))
 
 #if POWER_PCF50633
